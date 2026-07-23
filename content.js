@@ -30,21 +30,26 @@ function scrapePeople() {
     const optionsBtn = row.querySelector('button[aria-label*="Options for"]');
     const label = optionsBtn?.getAttribute('aria-label') || '';
 
-    if (label.includes('teacher')) {
+    if (label.toLowerCase().includes('teacher')) {
       if (!teachers.includes(name)) teachers.push(name);
-    } else if (label.includes('student')) {
+    } else if (label.toLowerCase().includes('student')) {
       if (!students.includes(name)) students.push(name);
     }
   });
 
   const classId = getClassId();
-  if (!classId) return;
+  if (!classId) {
+    console.log("No classId found, skipping people scrape.");
+    return;
+  }
 
   chrome.storage.local.get("classPeople", (data) => {
     const classPeople = data.classPeople || {};
     classPeople[classId] = { teachers, students, scrapedAt: Date.now() };
-    chrome.storage.local.set({ classPeople });
-    console.log("Scraped people for", classId, { teachers, students });
+    
+    chrome.storage.local.set({ classPeople }, () => {
+      console.log("✅ Scraped and saved people for", classId, { teachers, students });
+    });
   });
 }
 
@@ -57,20 +62,30 @@ function scrapeAssignments() {
 
   items.forEach(item => {
     const title = item.querySelector('span')?.innerText || "Untitled";
-    const author = item.querySelector('[class*="author"], [class*="byline"]')?.innerText || "Unknown";
+    // Try to find author/teacher name in the assignment card
+    const author = item.querySelector('[class*="author"], [class*="byline"], div[aria-label*="posted"]')?.innerText || "Unknown";
     assignments.push({ title, author, classId, scrapedAt: Date.now() });
   });
 
+  if (assignments.length === 0) return;
+
   chrome.storage.local.get("assignments", (data) => {
     const existing = data.assignments || [];
-    const merged = [...existing.filter(a => a.classId !== classId), ...assignments];
-    chrome.storage.local.set({ assignments: merged });
-    console.log("Scraped assignments for", classId, assignments);
+    // Remove old assignments for this classId, then add new ones
+    const filteredExisting = existing.filter(a => a.classId !== classId);
+    const merged = [...filteredExisting, ...assignments];
+    
+    chrome.storage.local.set({ assignments: merged }, () => {
+      console.log("✅ Scraped and saved assignments for", classId, assignments);
+    });
   });
 }
 
+// Execute based on page type
 if (isPeoplePage()) {
+  console.log("Detected People page, waiting for rows...");
   waitForPeopleRows(scrapePeople);
 } else {
+  console.log("Detected Stream/Class page, scraping assignments...");
   scrapeAssignments();
 }

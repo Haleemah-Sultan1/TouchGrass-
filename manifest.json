@@ -3,7 +3,7 @@
   "name": "TouchGrass GCR",
   "version": "1.0",
   "description": "Organizes GCR assignments by deadline/difficulty, opens all attachments in 1 click, and checks your submission before you turn it in.",
-  "permissions": ["storage", "notifications", "alarms"],
+  "permissions": ["storage", "notifications", "alarms", "tabs"],
   "host_permissions": ["https://classroom.google.com/*"],
   "background": {
     "service_worker": "background.js"
