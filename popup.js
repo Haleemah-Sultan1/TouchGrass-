@@ -4,11 +4,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const list = document.getElementById("list");
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
+  const debugBox = document.getElementById("debugBox"); // Keep this for safety
 
+  // FIXED: This now matches BOTH /c/ (Stream) and /r/ (People) pages
   function currentClassId(tabUrl) {
     if (!tabUrl) return null;
-    const match = tabUrl.match(/\/c\/([^\/]+)/);
-    return match ? match[1] : null;
+    const match = tabUrl.match(/\/(c|r)\/([^\/]+)/);
+    return match ? match[2] : null; // match[2] is the actual class ID
   }
 
   function render(assignments, people, classId) {
@@ -18,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
       classId 
     });
     
-    // Populate Teacher Dropdown
+    // 1. Populate Teacher Dropdown
     teacherFilter.innerHTML = '<option value="all">All teachers</option>';
     
     if (people && people.teachers && people.teachers.length > 0) {
@@ -29,13 +31,16 @@ document.addEventListener("DOMContentLoaded", () => {
         option.textContent = teacher;
         teacherFilter.appendChild(option);
       });
+      
+      if (debugBox) debugBox.innerText = `✅ Found ${people.teachers.length} teachers for Class ID: ${classId}`;
     } else {
       console.log("⚠️ No teachers found in people data:", people);
+      if (debugBox) debugBox.innerText = `⚠️ No teacher data found for Class ID: ${classId}. Go to the People tab in Classroom!`;
     }
 
-    // Render Assignments
+    // 2. Render Assignments List
     if (!assignments || assignments.length === 0) {
-      list.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">No assignments found.<br>Open Google Classroom and visit the Stream page.</div>';
+      list.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">No assignments found.<br>Open the Stream page to scrape them.</div>';
       return;
     }
 
@@ -44,7 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .join("");
   }
 
-  // Load data
+  // Main Load Logic
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     const classId = currentClassId(tab?.url);
@@ -53,15 +58,15 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("🔑 Extracted classId:", classId);
     
     chrome.storage.local.get(["assignments", "classPeople"], (data) => {
-      console.log(" Storage data:", data);
+      console.log("📦 Storage data:", data);
       
       const allAssignments = data.assignments || [];
       const classPeople = data.classPeople || {};
       
-      console.log("📦 ClassPeople object:", classPeople);
+      console.log("📦 ClassPeople object keys:", Object.keys(classPeople));
       
       const people = classId ? classPeople[classId] : null;
-      console.log("👥 People for this class:", people);
+      console.log("👥 People for this specific class:", people);
       
       const scoped = classId 
         ? allAssignments.filter(a => a.classId === classId)
@@ -71,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       render(scoped, people, classId);
 
-      // Filter button
+      // Filter button logic
       if (applyBtn) {
         applyBtn.addEventListener("click", () => {
           const teacher = teacherFilter.value;
@@ -81,11 +86,10 @@ document.addEventListener("DOMContentLoaded", () => {
             ? scoped 
             : scoped.filter(a => {
                 const match = a.author && a.author.toLowerCase().includes(teacher.toLowerCase());
-                console.log(`Checking "${a.author}" against "${teacher}": ${match}`);
                 return match;
               });
           
-          console.log(" Filtered results:", filtered.length);
+          console.log("🔍 Filtered results count:", filtered.length);
           render(filtered, people, classId);
         });
       }
