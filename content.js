@@ -20,12 +20,12 @@
 console.log("TouchGrass GCR content script loaded");
 
 function getClassId() {
-  const match = window.location.pathname.match(/\/c\/([^\/]+)/);
-  return match ? match[1] : null;
+  const match = window.location.pathname.match(/\/(c|r)\/([^\/]+)/);
+  return match ? match[2] : null;
 }
 
 function isPeoplePage() {
-  return /\/c\/[^\/]+\/p(\/|$)/.test(window.location.pathname);
+  return /\/r\/[^\/]+\/sort-last-name/.test(window.location.pathname);
 }
 
 function scrapePeople() {
