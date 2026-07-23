@@ -9,6 +9,15 @@ function isPeoplePage() {
   return /\/r\/[^\/]+\/sort-last-name/.test(window.location.pathname);
 }
 
+function waitForPeopleRows(callback, attempts = 0) {
+  const rows = document.querySelectorAll('li.ycbm1d');
+  if (rows.length > 0 || attempts > 20) {
+    callback();
+  } else {
+    setTimeout(() => waitForPeopleRows(callback, attempts + 1), 300);
+  }
+}
+
 function scrapePeople() {
   const teachers = [];
   const students = [];
@@ -61,7 +70,7 @@ function scrapeAssignments() {
 }
 
 if (isPeoplePage()) {
-  scrapePeople();
+  waitForPeopleRows(scrapePeople);
 } else {
   scrapeAssignments();
 }
