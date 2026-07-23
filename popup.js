@@ -1,57 +1,54 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const list = document.getElementById("list");
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
+  const debugBox = document.getElementById("debugBox");
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const url = tabs[0]?.url || "";
+    const tab = tabs[0];
+    const url = tab?.url || "";
     const match = url.match(/\/(c|r)\/([^\/]+)/);
     const classId = match ? match[2] : null;
 
-    chrome.storage.local.get(["classPeople", "assignments"], (data) => {
+    chrome.storage.local.get(["classPeople", "activeFilters"], (data) => {
       const classPeople = data.classPeople || {};
-      const allAssignments = data.assignments || [];
-      
-      let teachers = [];
-      if (classId && classPeople[classId]) {
-        teachers = classPeople[classId].teachers || [];
-      }
-      
-      // Populate dropdown
+      const activeFilters = data.activeFilters || {};
+      const teachers = classId && classPeople[classId] ? classPeople[classId].teachers || [] : [];
+
       teacherFilter.innerHTML = '<option value="all">All teachers</option>';
-      teachers.forEach(teacher => {
-        const option = document.createElement("option");
-        option.value = teacher;
-        option.textContent = teacher;
-        teacherFilter.appendChild(option);
+      teachers.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = t;
+        teacherFilter.appendChild(opt);
       });
-      
-      // Show assignments
-      const scoped = classId 
-        ? allAssignments.filter(a => a.classId === classId)
-        : allAssignments;
-      
-      if (scoped.length === 0) {
-        list.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">No assignments found.<br>Open the Stream page to scrape them.</div>';
-      } else {
-        list.innerHTML = scoped
-          .map(a => `<div style="padding:8px 0;border-bottom:1px solid #222;"><strong>${a.title}</strong><div style="color:#888;font-size:11px;margin-top:4px;">By: ${a.author || "Unknown"}</div></div>`)
-          .join("");
+
+      if (classId && activeFilters[classId]) {
+        teacherFilter.value = activeFilters[classId];
       }
 
-      // Filter button
-      if (applyBtn) {
-        applyBtn.addEventListener("click", () => {
-          const teacher = teacherFilter.value;
-          const filtered = teacher === "all" 
-            ? scoped 
-            : scoped.filter(a => a.author && a.author.includes(teacher));
-          
-          list.innerHTML = filtered.length === 0 
-            ? '<div style="color:#888;text-align:center;padding:20px;">No assignments for this teacher.</div>'
-            : filtered.map(a => `<div style="padding:8px 0;border-bottom:1px solid #222;"><strong>${a.title}</strong><div style="color:#888;font-size:11px;margin-top:4px;">By: ${a.author}</div></div>`).join("");
+      debugBox.textContent = `classId: ${classId || 'none'} | teachers cached: ${teachers.length}`;
+
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'GET_DEBUG' }, (resp) => {
+          if (chrome.runtime.lastError) {
+            debugBox.textContent += ` | content script not responding (reload the Classroom tab)`;
+            return;
+          }
+          if (resp) debugBox.textContent += ` | posts found on page: ${resp.postsFound}`;
         });
       }
+    });
+
+    applyBtn.addEventListener("click", () => {
+      const teacher = teacherFilter.value;
+      if (!tab?.id) return;
+      chrome.tabs.sendMessage(tab.id, { type: 'SET_FILTER', teacher }, (resp) => {
+        if (chrome.runtime.lastError) {
+          debugBox.textContent = `Error: content script not loaded. Reload the Classroom tab.`;
+          return;
+        }
+        debugBox.textContent = `Filter applied: ${teacher} | ${resp.postsFound} posts scanned`;
+      });
     });
   });
 });
