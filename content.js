@@ -1,22 +1,3 @@
-// console.log("TouchGrass GCR content script loaded");
-
-// function scrapeAssignments() {
-//   // GCR assignment titles usually sit in elements with role="link" or specific classes
-//   // this selector WILL need tweaking once you inspect the actual page
-//   const items = document.querySelectorAll('[data-stream-item-id]');
-//   const assignments = [];
-
-//   items.forEach(item => {
-//     const title = item.querySelector('span')?.innerText || "Untitled";
-//     assignments.push({ title, scrapedAt: Date.now() });
-//   });
-
-//   chrome.storage.local.set({ assignments });
-//   console.log("Scraped:", assignments);
-// }
-
-// scrapeAssignments();
-
 console.log("TouchGrass GCR content script loaded");
 
 function getClassId() {
@@ -31,21 +12,19 @@ function isPeoplePage() {
 function scrapePeople() {
   const teachers = [];
   const students = [];
-  let currentSection = null;
 
-  // NEEDS VERIFYING: walk all headers/rows, bucket by section header text
-  const allEls = document.querySelectorAll("h2, h3, div, span");
-  allEls.forEach(el => {
-    const text = el.innerText?.trim();
-    if (!text) return;
+  document.querySelectorAll('li.ycbm1d').forEach(row => {
+    const nameEl = row.querySelector('.sCv5Q');
+    if (!nameEl) return;
+    const name = nameEl.innerText.trim();
 
-    if (text === "Teachers") { currentSection = "teachers"; return; }
-    if (text === "Classmates" || text === "Students") { currentSection = "students"; return; }
+    const optionsBtn = row.querySelector('button[aria-label*="Options for"]');
+    const label = optionsBtn?.getAttribute('aria-label') || '';
 
-    // NEEDS VERIFYING: real selector for a "name row" in the people list
-    if (currentSection && el.matches('span[dir="auto"]') && text.split(" ").length <= 4) {
-      if (currentSection === "teachers" && !teachers.includes(text)) teachers.push(text);
-      if (currentSection === "students" && !students.includes(text)) students.push(text);
+    if (label.includes('teacher')) {
+      if (!teachers.includes(name)) teachers.push(name);
+    } else if (label.includes('student')) {
+      if (!students.includes(name)) students.push(name);
     }
   });
 
@@ -69,7 +48,6 @@ function scrapeAssignments() {
 
   items.forEach(item => {
     const title = item.querySelector('span')?.innerText || "Untitled";
-    // NEEDS VERIFYING: real selector for "posted by" text on a stream item
     const author = item.querySelector('[class*="author"], [class*="byline"]')?.innerText || "Unknown";
     assignments.push({ title, author, classId, scrapedAt: Date.now() });
   });
@@ -82,7 +60,6 @@ function scrapeAssignments() {
   });
 }
 
-// Run the right scraper for whichever page we're on
 if (isPeoplePage()) {
   scrapePeople();
 } else {
