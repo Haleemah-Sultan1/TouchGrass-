@@ -14,3 +14,49 @@
   <script src="popup.js"></script>
 </body>
 </html>
+
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { width: 300px; font-family: sans-serif; padding: 10px; }
+    select, button { width: 100%; margin-bottom: 8px; padding: 6px; }
+    .post { border: 1px solid #ccc; border-radius: 8px; padding: 8px; margin-bottom: 6px; }
+    .post small { color: gray; display: block; }
+  </style>
+</head>
+<body>
+  <h3>TouchGrass Filters</h3>
+
+  <label>Section</label>
+  <select id="sectionFilter">
+    <option value="all">All sections</option>
+    <option value="MVC">MVC</option>
+    <option value="CS-1005">CS-1005 Discrete Structures</option>
+    <option value="Expository">Expository Writing-Lab</option>
+    <option value="OOP">OOP Lab Section H</option>
+  </select>
+
+  <label>Teacher</label>
+  <select id="teacherFilter">
+    <option value="all">All teachers</option>
+    <option value="M. Huzam">M. Huzam</option>
+    <option value="Amna Irum">Amna Irum</option>
+    <option value="Muhammad Ibrahim">Muhammad Ibrahim</option>
+    <option value="usama imran">usama imran</option>
+  </select>
+
+  <label>Time</label>
+  <select id="timeFilter">
+    <option value="all">All time</option>
+    <option value="today">Today</option>
+    <option value="week">This week</option>
+  </select>
+
+  <button id="applyFilters">Apply</button>
+
+  <div id="results"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
