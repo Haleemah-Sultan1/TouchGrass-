@@ -1,7 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const debugBox = document.getElementById("debugBox");
   const list = document.getElementById("list");
   const teacherFilter = document.getElementById("teacherFilter");
+  const applyBtn = document.getElementById("applyFilters");
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const url = tabs[0]?.url || "";
@@ -13,37 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const allAssignments = data.assignments || [];
       
       let teachers = [];
-      
       if (classId && classPeople[classId]) {
-        const rawData = classPeople[classId].teachers || [];
-        
-        // FILTER: Only keep actual teacher names
-        // Remove emails, students, and garbage
-        teachers = rawData.filter(name => {
-          // Must NOT contain these words
-          if (name.includes('@') ||           // No emails
-              name.includes('Classmates') ||  // No section headers
-              name.includes('students') ||    // No student counts
-              name.includes('Sort by') ||     // No sort options
-              name.includes('Email') ||       // No email labels
-              name.includes('Invite') ||      // No buttons
-              name.includes('24K') ||         // No student IDs
-              name.includes('25F-') ||        // No student IDs
-              name.includes('25I-') ||        // No student IDs
-              name.length < 5 ||              // Too short
-              name.length > 50) {             // Too long
-            return false;
-          }
-          return true;
-        });
-        
-        // Remove duplicates
-        teachers = [...new Set(teachers)];
-      }
-      
-      // Show in debug box
-      if (debugBox) {
-        debugBox.innerText = `✅ Found ${teachers.length} teachers:\n${teachers.join(', ')}`;
+        teachers = classPeople[classId].teachers || [];
       }
       
       // Populate dropdown
@@ -66,6 +37,20 @@ document.addEventListener("DOMContentLoaded", () => {
         list.innerHTML = scoped
           .map(a => `<div style="padding:8px 0;border-bottom:1px solid #222;"><strong>${a.title}</strong><div style="color:#888;font-size:11px;margin-top:4px;">By: ${a.author || "Unknown"}</div></div>`)
           .join("");
+      }
+
+      // Filter button
+      if (applyBtn) {
+        applyBtn.addEventListener("click", () => {
+          const teacher = teacherFilter.value;
+          const filtered = teacher === "all" 
+            ? scoped 
+            : scoped.filter(a => a.author && a.author.includes(teacher));
+          
+          list.innerHTML = filtered.length === 0 
+            ? '<div style="color:#888;text-align:center;padding:20px;">No assignments for this teacher.</div>'
+            : filtered.map(a => `<div style="padding:8px 0;border-bottom:1px solid #222;"><strong>${a.title}</strong><div style="color:#888;font-size:11px;margin-top:4px;">By: ${a.author}</div></div>`).join("");
+        });
       }
     });
   });
