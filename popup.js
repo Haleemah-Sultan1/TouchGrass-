@@ -4,6 +4,46 @@ document.addEventListener("DOMContentLoaded", () => {
   const debugBox = document.getElementById("debugBox");
   const testAuthBtn = document.getElementById("testAuth");
   const authResult = document.getElementById("authResult");
+  const courseSelect = document.getElementById("courseSelect");
+  const syncBtn = document.getElementById("syncCourse");
+  const syncResult = document.getElementById("syncResult");
+  const assignmentSelect = document.getElementById("assignmentSelect");
+  const estimateBtn = document.getElementById("estimateBtn");
+  const difficultyResult = document.getElementById("difficultyResult");
+
+  function populateCourseDropdown(courses) {
+    courseSelect.innerHTML = "";
+    if (!courses || courses.length === 0) {
+      courseSelect.innerHTML = '<option value="">No courses found</option>';
+      return;
+    }
+    courses.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      courseSelect.appendChild(opt);
+    });
+  }
+
+  function populateAssignmentDropdown(courseWork) {
+    assignmentSelect.innerHTML = "";
+    if (!courseWork || courseWork.length === 0) {
+      assignmentSelect.innerHTML = '<option value="">No assignments found</option>';
+      return;
+    }
+    courseWork.forEach((item) => {
+      const opt = document.createElement("option");
+      opt.value = item.id;
+      opt.textContent = item.title;
+      assignmentSelect.appendChild(opt);
+    });
+  }
+
+  // Repopulate from last known course list on popup reopen, so the
+  // dropdown isn't empty every time until you rerun the auth test.
+  chrome.storage.local.get("knownCourses", (data) => {
+    if (data.knownCourses) populateCourseDropdown(data.knownCourses);
+  });
 
   testAuthBtn.addEventListener("click", () => {
     authResult.textContent = "Requesting token + fetching courses...";
@@ -13,9 +53,62 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       if (resp.ok) {
-        authResult.textContent = `✅ Success! Courses: ${resp.courseNames.join(", ") || "(none found)"}`;
+        const names = resp.courses.map(c => c.name).join(", ") || "(none found)";
+        authResult.textContent = `✅ Success! Courses: ${names}`;
+        populateCourseDropdown(resp.courses);
+        chrome.storage.local.set({ knownCourses: resp.courses });
       } else {
         authResult.textContent = `❌ Failed: ${resp.error}`;
+      }
+    });
+  });
+
+  syncBtn.addEventListener("click", () => {
+    const courseId = courseSelect.value;
+    if (!courseId) {
+      syncResult.textContent = "Pick a course first.";
+      return;
+    }
+    syncResult.textContent = "Syncing topics, coursework, materials, roster...";
+    chrome.runtime.sendMessage({ type: "SYNC_COURSE_DATA", courseId }, (resp) => {
+      if (chrome.runtime.lastError) {
+        syncResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      if (resp.ok) {
+        const groups = resp.data.groups;
+        const totalItems = resp.data.courseWork.length + resp.data.courseWorkMaterials.length;
+        const breakdown = Object.entries(groups)
+          .map(([name, items]) => `${name}: ${items.length}`)
+          .join(" | ");
+        syncResult.textContent = `✅ Total: ${totalItems} items — ${breakdown}`;
+        populateAssignmentDropdown(resp.data.courseWork);
+      } else {
+        syncResult.textContent = `❌ Failed: ${resp.error}`;
+      }
+    });
+  });
+
+  estimateBtn.addEventListener("click", () => {
+    const courseId = courseSelect.value;
+    const itemId = assignmentSelect.value;
+    if (!courseId || !itemId) {
+      difficultyResult.textContent = "Sync a course and pick an assignment first.";
+      return;
+    }
+    difficultyResult.textContent = "Asking Gemini to size this up...";
+    chrome.runtime.sendMessage({ type: "ESTIMATE_DIFFICULTY", courseId, itemId }, (resp) => {
+      if (chrome.runtime.lastError) {
+        difficultyResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      if (resp.ok) {
+        const r = resp.result;
+        difficultyResult.textContent =
+          `"${resp.itemTitle}" — ${r.difficultyLabel} (${r.difficultyScore}/10) — ` +
+          `~${r.estimatedMinutes} min. ${r.reasoning}`;
+      } else {
+        difficultyResult.textContent = `❌ Failed: ${resp.error}`;
       }
     });
   });
