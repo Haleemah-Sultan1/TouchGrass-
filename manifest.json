@@ -3,15 +3,25 @@
   "name": "TouchGrass GCR",
   "version": "1.0",
   "description": "Organizes GCR assignments by deadline/difficulty, opens all attachments in 1 click, and checks your submission before you turn it in.",
-  "permissions": ["storage", "notifications", "alarms", "tabs"],
-  "host_permissions": ["https://classroom.google.com/*"],
+  "permissions": [ "storage", "notifications", "alarms", "tabs", "identity" ],
+  "host_permissions": [ "https://classroom.google.com/*" ],
+  "oauth2": {
+    "client_id": "364093021279-gh710v8c4cd0chsjbmagd03h023ostlc.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/classroom.courses.readonly",
+      "https://www.googleapis.com/auth/classroom.coursework.me.readonly",
+      "https://www.googleapis.com/auth/classroom.topics.readonly",
+      "https://www.googleapis.com/auth/classroom.rosters.readonly",
+      "https://www.googleapis.com/auth/classroom.announcements.readonly"
+    ]
+  },
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://classroom.google.com/*"],
-      "js": ["content.js"]
+      "matches": [ "https://classroom.google.com/*" ],
+      "js": [ "content.js" ]
     }
   ],
   "action": {

@@ -2,6 +2,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
   const debugBox = document.getElementById("debugBox");
+  const testAuthBtn = document.getElementById("testAuth");
+  const authResult = document.getElementById("authResult");
+
+  testAuthBtn.addEventListener("click", () => {
+    authResult.textContent = "Requesting token + fetching courses...";
+    chrome.runtime.sendMessage({ type: "TEST_AUTH" }, (resp) => {
+      if (chrome.runtime.lastError) {
+        authResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      if (resp.ok) {
+        authResult.textContent = `✅ Success! Courses: ${resp.courseNames.join(", ") || "(none found)"}`;
+      } else {
+        authResult.textContent = `❌ Failed: ${resp.error}`;
+      }
+    });
+  });
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
