@@ -500,6 +500,22 @@ function loadAndApplySavedFilter(classId) {
   });
 }
 
+// function watchFeed(classId) {
+//   if (feedObserver) feedObserver.disconnect();
+//   const mainArea = document.querySelector('main') || document.body;
+//   feedObserver = new MutationObserver(() => {
+//     clearTimeout(debounceTimer);
+//     debounceTimer = setTimeout(() => {
+//       injectPinButtonsOnAllCards(classId);
+//       chrome.storage.local.get("activeFilters", (data) => {
+//         const teacher = (data.activeFilters || {})[classId];
+//         if (teacher && teacher !== 'all') applyFilter(teacher);
+//       });
+//     }, 800);
+//   });
+//   feedObserver.observe(mainArea, { childList: true, subtree: true });
+// }
+
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
@@ -507,11 +523,33 @@ function watchFeed(classId) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       injectPinButtonsOnAllCards(classId);
+      refreshPinBar(classId);
       chrome.storage.local.get("activeFilters", (data) => {
         const teacher = (data.activeFilters || {})[classId];
-        if (teacher && teacher !== 'all') applyFilter(teacher);
+        if (teacher && teacher !== 'all') {
+          // Re-scan and re-apply without scrolling to top again
+          const cards = findStreamCards();
+          cards.forEach(el => {
+            const text = el.innerText?.trim();
+            if (!text) return;
+            const headText = text.slice(0, 120);
+            if (headText.includes(teacher) && !el.classList.contains('tg-highlight')) {
+              el.classList.add('tg-highlight');
+              el.style.outline = '3px solid #d500f9';
+              el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+              el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+            }
+          });
+          // Rebuild match nav with updated full list
+          const matches = Array.from(document.querySelectorAll('.tg-highlight'));
+          if (matches.length > 0) {
+            removeMatchNav();
+            createMatchNav(matches);
+            // Don't scroll — keep user where they are
+          }
+        }
       });
-    }, 800);
+    }, 600);
   });
   feedObserver.observe(mainArea, { childList: true, subtree: true });
 }
