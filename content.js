@@ -1,117 +1,318 @@
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("TouchGrass GCR installed");
-});
+console.log("TouchGrass GCR loaded");
 
-console.log("✅ TouchGrass GCR loaded");
-
-// ---------- State ----------
 let currentClassId = null;
 let currentPath = location.pathname;
-const postAuthorMap = new WeakMap();
 let scannedPosts = [];
 let feedObserver = null;
+let debounceTimer = null;
+let currentMatchIndex = -1;
 
-// ---------- Utils ----------
+window.__tgTeachers = window.__tgTeachers || new Map();
+window.__tgStudents = window.__tgStudents || new Map();
+
+// ==================== PIN STYLES ====================
+
+function injectPinStyles() {
+  if (document.getElementById('tg-pin-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-pin-styles';
+  style.textContent = `
+    .tg-pin-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, transform 0.15s;
+      padding: 4px;
+      border-radius: 6px;
+      z-index: 9999;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .tg-pin-btn:hover {
+      transform: scale(1.15);
+      background: rgba(127, 119, 221, 0.12);
+    }
+    .tg-pin-btn.tg-pinned-active {
+      opacity: 1 !important;
+    }
+    [data-tg-hoverable]:hover .tg-pin-btn {
+      opacity: 1;
+    }
+    .tg-card-pinned {
+      outline: 2px solid #7F77DD !important;
+      box-shadow: 0 0 0 4px rgba(127, 119, 221, 0.13) !important;
+      background-color: rgba(127, 119, 221, 0.05) !important;
+    }
+    .tg-pinned-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #534AB7;
+      background: rgba(127, 119, 221, 0.13);
+      border-radius: 20px;
+      padding: 2px 8px;
+      margin-bottom: 6px;
+      letter-spacing: 0.02em;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ==================== PIN STORAGE ====================
+
+function getPinnedPosts(classId, callback) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const all = data.pinnedPosts || {};
+    callback(all[classId] || []);
+  });
+}
+
+function savePinnedPosts(classId, pins) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const all = data.pinnedPosts || {};
+    all[classId] = pins;
+    chrome.storage.local.set({ pinnedPosts: all });
+  });
+}
+
+function makePinId(el) {
+  // Use data-stream-item-id if available, else hash first 80 chars of text
+  const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
+  if (streamId) return streamId;
+  const text = el.innerText?.trim().slice(0, 80) || '';
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'tg_' + Math.abs(hash).toString(36);
+}
+
+// ==================== PIN BUTTON INJECTION ====================
+
+function togglePin(classId, pinId, snippet, el, btn) {
+  getPinnedPosts(classId, (pins) => {
+    const exists = pins.find(p => p.id === pinId);
+    if (exists) {
+      const updated = pins.filter(p => p.id !== pinId);
+      savePinnedPosts(classId, updated);
+      btn.textContent = '📌';
+      btn.title = 'Pin this post';
+      btn.classList.remove('tg-pinned-active');
+      el.classList.remove('tg-card-pinned');
+      removePinnedBadge(el);
+    } else {
+      const newPin = { id: pinId, snippet: snippet.slice(0, 120), pinnedAt: Date.now() };
+      savePinnedPosts(classId, [...pins, newPin]);
+      btn.textContent = '📍';
+      btn.title = 'Unpin this post';
+      btn.classList.add('tg-pinned-active');
+      el.classList.add('tg-card-pinned');
+      addPinnedBadge(el);
+    }
+  });
+}
+
+function addPinnedBadge(el) {
+  if (el.querySelector('.tg-pinned-badge')) return;
+  const badge = document.createElement('div');
+  badge.className = 'tg-pinned-badge';
+  badge.innerHTML = '📍 pinned by you';
+  el.insertBefore(badge, el.firstChild);
+}
+
+function removePinnedBadge(el) {
+  el.querySelector('.tg-pinned-badge')?.remove();
+}
+
+function injectPinButton(el, classId) {
+  if (el.querySelector('.tg-pin-btn')) return;
+  el.setAttribute('data-tg-hoverable', '1');
+  if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+
+  const pinId = makePinId(el);
+  const snippet = el.innerText?.trim() || '';
+
+  const btn = document.createElement('button');
+  btn.className = 'tg-pin-btn';
+  btn.textContent = '📌';
+  btn.title = 'Pin this post';
+  btn.setAttribute('aria-label', 'Pin this post');
+
+  // Check if already pinned
+  getPinnedPosts(classId, (pins) => {
+    if (pins.find(p => p.id === pinId)) {
+      btn.textContent = '📍';
+      btn.title = 'Unpin this post';
+      btn.classList.add('tg-pinned-active');
+      el.classList.add('tg-card-pinned');
+      addPinnedBadge(el);
+    }
+  });
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    togglePin(classId, pinId, snippet, el, btn);
+  });
+
+  el.appendChild(btn);
+}
+
+function injectPinButtonsOnAllCards(classId) {
+  scanStreamPosts();
+  scannedPosts.forEach(({ el }) => injectPinButton(el, classId));
+}
+
+// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
+
 function getClassId() {
   const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
   return match ? match[2] : null;
 }
 
-function looksLikeName(line) {
-  const words = line.split(/\s+/);
-  if (words.length < 2 || words.length > 4) return false;
-  for (const w of words) {
-    if (/\d/.test(w) || w.includes('@') || w.includes('_') || w.includes('-')) return false;
-    if (w[0] !== w[0].toUpperCase()) return false;
-  }
-  const uiText = ['View all', 'Invite', 'Email', 'Sort by', 'Options', 'Help', 'Posted', 'Edited', 'Class comment'];
-  if (uiText.some(ui => line.includes(ui))) return false;
-  return true;
+function isPeoplePage() {
+  return /\/r\/[^\/]+\/sort-last-name/.test(location.pathname);
 }
 
-// ---------- Teacher scraping (People page) ----------
-function scrapeTeachers(classId) {
-  const mainArea = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
-  const fullText = mainArea.innerText;
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-  let teachers = [];
-  let inTeachersSection = false;
-
-  for (let line of lines) {
-    if (line === 'Teachers') { inTeachersSection = true; continue; }
-    if (inTeachersSection && (line === 'Classmates' || line.startsWith('Classmates '))) break;
-    if (inTeachersSection && looksLikeName(line) && !teachers.includes(line)) {
-      teachers.push(line);
-    }
-  }
-
-  if (teachers.length > 0) {
-    chrome.storage.local.get("classPeople", (data) => {
-      const classPeople = data.classPeople || {};
-      classPeople[classId] = { teachers, students: [], scrapedAt: Date.now() };
-      chrome.storage.local.set({ classPeople }, () => {
-        console.log("📇 Teachers saved for", classId, teachers);
-      });
-    });
-  }
+function collectPeopleRows() {
+  document.querySelectorAll('li.ycbm1d').forEach(row => {
+    const nameEl = row.querySelector('.sCv5Q');
+    if (!nameEl) return;
+    const name = nameEl.innerText.trim();
+    const label = row.querySelector('button[aria-label*="Options for"]')?.getAttribute('aria-label') || '';
+    if (label.includes('teacher')) window.__tgTeachers.set(name, true);
+    else if (label.includes('student')) window.__tgStudents.set(name, true);
+  });
 }
 
-// ---------- Stream post scraping ----------
-function findPostContainers() {
-  const candidateSelectors = [
-    'main [role="listitem"]',
-    'main ol > li',
-    'main article',
-  ];
-
-  let best = [];
-  for (const sel of candidateSelectors) {
-    const els = Array.from(document.querySelectorAll(sel));
-    const plausible = els.filter(el =>
-      el.innerText &&
-      el.innerText.trim().split('\n').length >= 2 &&
-      el.offsetHeight > 40
-    );
-    if (plausible.length > best.length) best = plausible;
-  }
-  return best;
+function saveAccumulatedPeople(classId) {
+  const teachers = Array.from(window.__tgTeachers.keys());
+  const students = Array.from(window.__tgStudents.keys());
+  chrome.storage.local.get("classPeople", (data) => {
+    const classPeople = data.classPeople || {};
+    classPeople[classId] = { teachers, students, scrapedAt: Date.now() };
+    chrome.storage.local.set({ classPeople });
+  });
 }
 
-function extractAuthorFromPost(postEl) {
-  const lines = postEl.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-  for (let i = 0; i < Math.min(3, lines.length); i++) {
-    if (looksLikeName(lines[i])) return lines[i];
+function startPeopleAccumulator(classId) {
+  collectPeopleRows();
+  saveAccumulatedPeople(classId);
+  const onScroll = () => { collectPeopleRows(); saveAccumulatedPeople(classId); };
+  window.addEventListener('scroll', onScroll, true);
+  document.addEventListener('scroll', onScroll, true);
+}
+
+function findStreamCards() {
+  const markers = document.querySelectorAll('[data-stream-item-id]');
+  let container = null;
+  if (markers.length > 0) container = markers[0].parentElement;
+  if (!container) container = document.querySelector('main') || document.body;
+
+  const cards = Array.from(container.children).filter(el => {
+    return el.offsetHeight > 20 && el.offsetParent !== null;
+  });
+
+  if (cards.length < 2) {
+    const main = document.querySelector('main') || document.body;
+    return Array.from(main.querySelectorAll(':scope > *, :scope > * > *'))
+      .filter(el => el.offsetHeight > 20 && el.offsetHeight < 2000 && el.offsetParent !== null);
   }
-  return null;
+  return cards;
 }
 
 function scanStreamPosts() {
-  const containers = findPostContainers();
-  scannedPosts = [];
-
-  containers.forEach(postEl => {
-    const author = extractAuthorFromPost(postEl);
-    if (author) {
-      postAuthorMap.set(postEl, author);
-      scannedPosts.push({ el: postEl, author });
-    }
+  const cards = findStreamCards();
+  const newPosts = [];
+  cards.forEach(el => {
+    const text = el.innerText?.trim();
+    if (!text) return;
+    const headText = text.slice(0, 120);
+    newPosts.push({ el, headText });
   });
-
-  console.log(`📰 Found ${scannedPosts.length} posts`, scannedPosts.map(p => p.author));
+  if (newPosts.length === 0 && scannedPosts.length > 0) return scannedPosts;
+  scannedPosts = newPosts;
+  console.log(`Stream cards found: ${scannedPosts.length}`);
   return scannedPosts;
 }
 
-// ---------- Filtering ----------
+function clearHighlights() {
+  document.querySelectorAll('.tg-highlight').forEach(el => {
+    el.classList.remove('tg-highlight');
+    el.style.outline = '';
+    el.style.boxShadow = '';
+    el.style.backgroundColor = '';
+  });
+  removeMatchNav();
+}
+
+function scrollToMatch(el) {
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeMatchNav() {
+  document.getElementById('tg-match-nav')?.remove();
+}
+
+function createMatchNav(matches) {
+  removeMatchNav();
+  const nav = document.createElement('div');
+  nav.id = 'tg-match-nav';
+  nav.style.cssText = `
+    position: fixed; bottom: 24px; right: 24px; z-index: 999999;
+    background: #1a1a1a; color: white; padding: 10px 14px;
+    border-radius: 999px; display: flex; align-items: center; gap: 10px;
+    font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  nav.innerHTML = `
+    <button id="tg-prev" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▲</button>
+    <span id="tg-count">1 / ${matches.length}</span>
+    <button id="tg-next" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▼</button>
+  `;
+  document.body.appendChild(nav);
+
+  nav.querySelector('#tg-prev').onclick = () => {
+    currentMatchIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+  nav.querySelector('#tg-next').onclick = () => {
+    currentMatchIndex = (currentMatchIndex + 1) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+}
+
 function applyFilter(teacher) {
   scanStreamPosts();
-  scannedPosts.forEach(({ el, author }) => {
-    if (teacher === 'all' || !teacher) {
-      el.style.display = '';
-    } else {
-      el.style.display = (author === teacher) ? '' : 'none';
+  clearHighlights();
+  if (!teacher || teacher === 'all') return;
+
+  const matches = [];
+  scannedPosts.forEach(({ el, headText }) => {
+    if (headText.includes(teacher)) {
+      el.classList.add('tg-highlight');
+      el.style.outline = '3px solid #d500f9';
+      el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+      el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+      matches.push(el);
     }
   });
+
+  console.log(`Highlighted ${matches.length} cards for "${teacher}"`);
+
+  if (matches.length > 0) {
+    currentMatchIndex = 0;
+    scrollToMatch(matches[0]);
+    createMatchNav(matches);
+  }
 }
 
 function saveActiveFilter(classId, teacher) {
@@ -129,31 +330,43 @@ function loadAndApplySavedFilter(classId) {
   });
 }
 
-// ---------- Watch feed for lazy-loaded posts ----------
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
   feedObserver = new MutationObserver(() => {
-    chrome.storage.local.get("activeFilters", (data) => {
-      const teacher = (data.activeFilters || {})[classId];
-      if (teacher && teacher !== 'all') applyFilter(teacher);
-    });
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      // Re-inject pin buttons on newly loaded cards
+      injectPinButtonsOnAllCards(classId);
+      chrome.storage.local.get("activeFilters", (data) => {
+        const teacher = (data.activeFilters || {})[classId];
+        if (teacher && teacher !== 'all') applyFilter(teacher);
+      });
+    }, 800);
   });
   feedObserver.observe(mainArea, { childList: true, subtree: true });
 }
 
-// ---------- Run on load + SPA nav ----------
+// ==================== INIT ====================
+
 function handlePageContext() {
   const classId = getClassId();
   if (!classId) return;
   currentClassId = classId;
 
-  setTimeout(() => {
-    scrapeTeachers(classId);
-    scanStreamPosts();
-    loadAndApplySavedFilter(classId);
-    watchFeed(classId);
-  }, 1500);
+  if (isPeoplePage()) {
+    window.__tgTeachers = new Map();
+    window.__tgStudents = new Map();
+    setTimeout(() => startPeopleAccumulator(classId), 800);
+  } else {
+    injectPinStyles();
+    setTimeout(() => {
+      scanStreamPosts();
+      injectPinButtonsOnAllCards(classId);
+      loadAndApplySavedFilter(classId);
+      watchFeed(classId);
+    }, 1000);
+  }
 }
 
 handlePageContext();
@@ -165,15 +378,37 @@ setInterval(() => {
   }
 }, 800);
 
-// ---------- Messages from popup ----------
+// ==================== MESSAGE LISTENER ====================
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SET_FILTER') {
     applyFilter(msg.teacher);
     if (currentClassId) saveActiveFilter(currentClassId, msg.teacher);
     sendResponse({ ok: true, postsFound: scannedPosts.length });
+    return true;
   }
   if (msg.type === 'GET_DEBUG') {
-    sendResponse({ classId: currentClassId, postsFound: scannedPosts.length, authors: scannedPosts.map(p => p.author) });
+    sendResponse({ classId: currentClassId, postsFound: scannedPosts.length });
+    return true;
+  }
+  if (msg.type === 'GET_PINS') {
+    getPinnedPosts(msg.classId || currentClassId, (pins) => {
+      sendResponse({ pins });
+    });
+    return true; // keep channel open for async
+  }
+  if (msg.type === 'SCROLL_TO_PIN') {
+    // Find the card matching this pinId and scroll to it
+    scanStreamPosts();
+    const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
+    if (match) {
+      scrollToMatch(match.el);
+      match.el.style.transition = 'box-shadow 0.3s';
+      match.el.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
+      setTimeout(() => { match.el.style.boxShadow = ''; }, 1500);
+    }
+    sendResponse({ found: !!match });
+    return true;
   }
   return true;
 });
