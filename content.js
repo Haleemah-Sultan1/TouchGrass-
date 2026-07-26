@@ -10,6 +10,20 @@ let currentMatchIndex = -1;
 window.__tgTeachers = window.__tgTeachers || new Map();
 window.__tgStudents = window.__tgStudents || new Map();
 
+function cleanupPreviousState() {
+  document.querySelectorAll('.tg-pin-btn').forEach(el => el.remove());
+  document.querySelectorAll('.tg-pinned-badge').forEach(el => el.remove());
+  document.querySelectorAll('.tg-card-pinned').forEach(el => {
+    el.classList.remove('tg-card-pinned');
+    el.style.outline = '';
+    el.style.boxShadow = '';
+    el.style.backgroundColor = '';
+  });
+  const bar = document.getElementById('tg-pin-bar');
+  if (bar) bar.classList.add('tg-bar-hidden');
+  scannedPosts = [];
+}
+
 // ==================== PIN STYLES ====================
 
 function injectPinStyles() {
@@ -557,6 +571,7 @@ function watchFeed(classId) {
 // ==================== INIT ====================
 
 function handlePageContext() {
+   cleanupPreviousState();
   const classId = getClassId();
   if (!classId) return;
   currentClassId = classId;
@@ -565,15 +580,23 @@ function handlePageContext() {
     window.__tgTeachers = new Map();
     window.__tgStudents = new Map();
     setTimeout(() => startPeopleAccumulator(classId), 800);
-  } else {
+  }  else {
     injectPinStyles();
-    setTimeout(() => {
-      scanStreamPosts();
-      injectPinButtonsOnAllCards(classId);
-      refreshPinBar(classId);
-      loadAndApplySavedFilter(classId);
-      watchFeed(classId);
-    }, 1000);
+    let attempts = 0;
+    const tryInit = () => {
+      attempts++;
+      const cards = findStreamCards();
+      if (cards.length > 0 || attempts > 10) {
+        scanStreamPosts();
+        injectPinButtonsOnAllCards(classId);
+        refreshPinBar(classId);
+        loadAndApplySavedFilter(classId);
+        watchFeed(classId);
+      } else {
+        setTimeout(tryInit, 800);
+      }
+    };
+    setTimeout(tryInit, 800);
   }
 }
 
