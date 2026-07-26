@@ -1,41 +1,316 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8" />
   <style>
-    body { width: 300px; font-family: sans-serif; padding: 12px; background: #111; color: #eee; margin: 0; }
-    h3 { margin: 0 0 12px; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; }
-    #debugBox { background: #ffff00; color: #000; padding: 8px; font-size: 11px; margin-bottom: 12px; border-radius: 4px; word-wrap: break-word; max-height: 100px; overflow-y: auto; font-family: monospace; }
-    label { font-size: 12px; color: #aaa; display: block; margin-top: 8px; margin-bottom: 4px; }
-    select, button { width: 100%; margin-bottom: 8px; padding: 8px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; font-size: 13px; box-sizing: border-box; }
-    button { cursor: pointer; background: #007bff; color: white; border: none; font-weight: bold; margin-top: 12px; }
-    button:hover { background: #0056b3; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 300px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid #222;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #141414;
+    }
+    .header-logo {
+      font-size: 20px;
+    }
+    .header-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    /* Google-style colored letters */
+    .g-b { color: #4285F4; }
+    .g-r { color: #EA4335; }
+    .g-y { color: #FBBC05; }
+    .g-g { color: #34A853; }
+
+    .header-sub {
+      font-size: 10px;
+      color: #444;
+      margin-left: auto;
+      font-family: monospace;
+    }
+
+    /* ---- Debug box ---- */
+    .debug-box {
+      background: #1a1a1a;
+      border-left: 3px solid #FBBC05;
+      color: #FBBC05;
+      padding: 7px 10px;
+      font-size: 10px;
+      font-family: monospace;
+      word-wrap: break-word;
+      max-height: 60px;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+
+    /* ---- Tabs ---- */
+    .tabs {
+      display: flex;
+      background: #141414;
+      border-bottom: 1px solid #222;
+    }
+    .tab {
+      flex: 1;
+      padding: 9px 0;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      color: #555;
+      cursor: pointer;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      letter-spacing: 0.02em;
+    }
+    .tab:hover { color: #aaa; }
+    .tab[data-tab="filter"].active {
+      color: #34A853;
+      border-bottom-color: #34A853;
+    }
+    .tab[data-tab="pinned"].active {
+      color: #FF6D00;
+      border-bottom-color: #FF6D00;
+    }
+    .tab[data-tab="dev"].active {
+      color: #4285F4;
+      border-bottom-color: #4285F4;
+    }
+
+    /* ---- Panels ---- */
+    .panel { display: none; padding: 12px; }
+    .panel.active { display: block; }
+
+    /* ---- Section label ---- */
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #444;
+      margin-bottom: 6px;
+    }
+
+    /* ---- Selects ---- */
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      color: #f0f0f0;
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+      margin-bottom: 8px;
+    }
+    select:focus { border-color: #34A853; }
+
+    /* ---- Buttons ---- */
+    .btn {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 6px;
+      transition: opacity 0.15s, transform 0.1s;
+      letter-spacing: 0.02em;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn:active { transform: scale(0.98); }
+
+    .btn-green {
+      background: #34A853;
+      color: #fff;
+    }
+    .btn-ghost {
+      background: none;
+      color: #555;
+      border: 1px solid #2a2a2a;
+    }
+    .btn-ghost:hover { color: #aaa; border-color: #444; }
+    .btn-blue {
+      background: #4285F4;
+      color: #fff;
+    }
+    .btn-orange {
+      background: #FF6D00;
+      color: #fff;
+    }
+
+    /* ---- Status bar ---- */
+    #status {
+      padding: 7px 12px;
+      font-size: 11px;
+      color: #444;
+      border-top: 1px solid #1a1a1a;
+      min-height: 28px;
+      font-family: monospace;
+    }
+    #status.ok { color: #34A853; }
+    #status.err { color: #EA4335; }
+
+    /* ---- Pinned panel ---- */
+    .pinned-list { display: flex; flex-direction: column; gap: 5px; }
+
+    .pinned-item {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-left: 3px solid #FF6D00;
+      border-radius: 6px;
+      padding: 9px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .pinned-item:hover {
+      background: #1e1a14;
+      border-color: #FF6D00;
+    }
+    .pin-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #FF6D00;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .pin-snippet {
+      font-size: 12px;
+      color: #ccc;
+      line-height: 1.4;
+      flex: 1;
+      word-break: break-word;
+    }
+    .pin-time {
+      font-size: 10px;
+      color: #444;
+      margin-top: 3px;
+      font-family: monospace;
+    }
+    .unpin-btn {
+      background: none;
+      border: none;
+      color: #444;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .unpin-btn:hover { color: #EA4335; background: rgba(234,67,53,0.1); }
+
+    .empty-state {
+      text-align: center;
+      padding: 20px 12px;
+      color: #333;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .empty-icon { font-size: 24px; margin-bottom: 6px; }
+
+    /* ---- Dev panel ---- */
+    .dev-result {
+      font-size: 11px;
+      color: #4285F4;
+      word-wrap: break-word;
+      margin-top: 6px;
+      font-family: monospace;
+      line-height: 1.5;
+      min-height: 16px;
+    }
+    .dev-result.ok { color: #34A853; }
+    .dev-result.err { color: #EA4335; }
+
+    /* ---- Divider ---- */
+    .divider {
+      border: none;
+      border-top: 1px solid #1e1e1e;
+      margin: 10px 0;
+    }
   </style>
 </head>
 <body>
-    <h3>⚡ TouchGrass</h3>
-    <div id="debugBox">Loading...</div>
-    <label>Teacher</label>
+
+  <div class="header">
+    <span class="header-logo">🌿</span>
+    <span class="header-title">
+      <span class="g-b">T</span><span class="g-r">o</span><span class="g-y">u</span><span class="g-g">c</span><span class="g-b">h</span><span class="g-r">G</span><span class="g-y">r</span><span class="g-g">a</span><span class="g-b">s</span><span class="g-r">s</span>
+    </span>
+    <span class="header-sub" id="class-id-display">—</span>
+  </div>
+
+  <div class="debug-box" id="debugBox">Loading...</div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="filter">🟢 Filter</button>
+    <button class="tab" data-tab="pinned">🟠 Pinned <span id="pin-count"></span></button>
+    <button class="tab" data-tab="dev">🔵 Dev</button>
+  </div>
+
+  <!-- FILTER PANEL -->
+  <div class="panel active" id="panel-filter">
+    <p class="section-label">Filter by teacher</p>
     <select id="teacherFilter">
-        <option value="all">All teachers</option>
+      <option value="all">All teachers</option>
     </select>
+    <select id="teacher-select">
+      <option value="all">All teachers</option>
+    </select>
+    <button class="btn btn-green" id="applyFilters">Apply Filter</button>
+    <button class="btn btn-green" id="apply-btn">Apply Filter (new)</button>
+    <button class="btn btn-ghost" id="clear-btn">Clear filter</button>
+  </div>
 
+  <!-- PINNED PANEL -->
+  <div class="panel" id="panel-pinned">
+    <div class="pinned-list" id="pinned-list">
+      <div class="empty-state">
+        <div class="empty-icon">📌</div>
+        No pinned posts yet.<br>Hover a post and click 📌 to pin it.
+      </div>
+    </div>
+  </div>
 
+  <!-- DEV PANEL -->
+  <div class="panel" id="panel-dev">
+    <p class="section-label">Milestone 1 — API Auth</p>
+    <button class="btn btn-blue" id="testAuth">Test Classroom API Auth</button>
+    <div class="dev-result" id="authResult"></div>
 
-    <button id="applyFilters">Apply Filter</button>
+    <hr class="divider">
 
-    <label>Milestone 1 check</label>
-    <button id="testAuth">Test Classroom API Auth</button>
-    <div id="authResult" style="font-size: 11px; color: #9f9; word-wrap: break-word;"></div>
-
-    <label>Milestone 2 check</label>
+    <p class="section-label">Milestone 2 — Sync Course</p>
     <select id="courseSelect"><option value="">Run auth test first ↑</option></select>
-    <button id="syncCourse">Sync Selected Course Data</button>
-    <div id="syncResult" style="font-size: 11px; color: #9cf; word-wrap: break-word;"></div>
+    <button class="btn btn-orange" id="syncCourse">Sync Selected Course Data</button>
+    <div class="dev-result" id="syncResult"></div>
+  </div>
 
-    <script src="popup.js"></script>
+  <div id="status">Ready</div>
 
-
-
+  <script src="popup.js"></script>
 </body>
 </html>
-
