@@ -8,6 +8,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const syncBtn = document.getElementById("syncCourse");
   const syncResult = document.getElementById("syncResult");
 
+  // Dark mode toggle
+  const darkToggle = document.getElementById('dark-toggle');
+  getActiveClassId((classId, tabId) => {
+    if (!tabId) return;
+    chrome.tabs.sendMessage(tabId, { type: 'GET_DARK_MODE' }, (res) => {
+      if (chrome.runtime.lastError) return;
+      darkToggle.checked = !!res?.enabled;
+    });
+  });
+
+  darkToggle.addEventListener('change', () => {
+    getActiveClassId((classId, tabId) => {
+      if (!tabId) return;
+      chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_DARK_MODE' });
+    });
+  });
+
   function populateCourseDropdown(courses) {
     courseSelect.innerHTML = "";
     if (!courses || courses.length === 0) {

@@ -156,6 +156,89 @@ function injectPinStyles() {
   document.head.appendChild(style);
 }
 
+// ==================== DARK MODE ====================
+
+function injectDarkModeStyles() {
+  if (document.getElementById('tg-dark-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles';
+  style.textContent = `
+    body.tg-dark,
+    body.tg-dark [data-is-archived="false"],
+    body.tg-dark main,
+    body.tg-dark header,
+    body.tg-dark nav,
+    body.tg-dark aside,
+    body.tg-dark footer,
+    body.tg-dark div,
+    body.tg-dark section,
+    body.tg-dark article,
+    body.tg-dark li,
+    body.tg-dark ul,
+    body.tg-dark form {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+    body.tg-dark * {
+      color: #e8e8e8 !important;
+      box-shadow: none !important;
+    }
+    body.tg-dark a {
+      color: #8ab4f8 !important;
+    }
+    body.tg-dark input,
+    body.tg-dark textarea,
+    body.tg-dark select {
+      background-color: #1a1a1a !important;
+      border-color: #333 !important;
+      color: #e8e8e8 !important;
+    }
+    body.tg-dark img {
+      opacity: 0.88;
+    }
+    body.tg-dark [data-material-css-shimmer],
+    body.tg-dark .shimmer {
+      background: #1a1a1a !important;
+    }
+    /* Keep our own TG elements unaffected */
+    body.tg-dark #tg-pin-bar {
+      background: #1a1a1a !important;
+      border-bottom: 1px solid #2a2a2a !important;
+    }
+    body.tg-dark #tg-match-nav {
+      background: #1a1a1a !important;
+    }
+    body.tg-dark .tg-pinned-badge {
+      background: rgba(127,119,221,0.2) !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function applyDarkMode(enabled) {
+  if (enabled) {
+    document.body.classList.add('tg-dark');
+  } else {
+    document.body.classList.remove('tg-dark');
+  }
+}
+
+function loadDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    injectDarkModeStyles();
+    applyDarkMode(!!data.tgDarkMode);
+  });
+}
+
+function toggleDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    const next = !data.tgDarkMode;
+    chrome.storage.local.set({ tgDarkMode: next }, () => {
+      applyDarkMode(next);
+    });
+  });
+}
+
 // ==================== PIN STORAGE ====================
 
 function getPinnedPosts(classId, callback) {
@@ -582,6 +665,7 @@ function handlePageContext() {
     setTimeout(() => startPeopleAccumulator(classId), 800);
   }  else {
     injectPinStyles();
+    loadDarkMode();
     let attempts = 0;
     const tryInit = () => {
       attempts++;
@@ -628,6 +712,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.type === 'TOGGLE_DARK_MODE') {
+    toggleDarkMode();
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === 'GET_DARK_MODE') {
+    chrome.storage.local.get('tgDarkMode', (data) => {
+      sendResponse({ enabled: !!data.tgDarkMode });
+    });
+    return true;
+  }
   if (msg.type === 'SCROLL_TO_PIN') {
     scanStreamPosts();
     const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
@@ -662,3 +757,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return true;
 });
+
