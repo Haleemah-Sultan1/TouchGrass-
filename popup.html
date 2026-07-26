@@ -10,9 +10,14 @@
     button { cursor: pointer; background: #007bff; color: white; border: none; font-weight: bold; margin-top: 12px; }
     button:hover { background: #0056b3; }
 
-    #dark-toggle:checked + #dark-slider { background: #34A853; }
-    #dark-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
-    #dark-toggle:checked + #dark-slider::before { transform: translateX(18px); }
+    .toggle-wrap { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; }
+    .toggle-label-text { font-size: 12px; color: #aaa; font-weight: 600; }
+    .toggle-switch { position: relative; display: inline-block; width: 38px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #2a2a2a; border-radius: 20px; transition: 0.2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+    .toggle-switch input:checked + .toggle-slider { background: #34A853; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
   </style>
 </head>
 <body>
@@ -25,11 +30,11 @@
 
     <button id="applyFilters">Apply Filter</button>
 
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; margin-top:10px;">
-      <span style="font-size:12px; color:#aaa; font-weight:600;"> Dark mode</span>
-      <label style="position:relative; display:inline-block; width:38px; height:20px;">
-        <input type="checkbox" id="dark-toggle" style="opacity:0;width:0;height:0;position:absolute;">
-        <span id="dark-slider" style="position:absolute; cursor:pointer; inset:0; background:#2a2a2a; border-radius:20px; transition:0.2s;"></span>
+    <div class="toggle-wrap">
+      <span class="toggle-label-text">Dark mode</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="dark-toggle">
+        <span class="toggle-slider"></span>
       </label>
     </div>
 
@@ -38,7 +43,7 @@
     <div id="authResult" style="font-size: 11px; color: #9f9; word-wrap: break-word;"></div>
 
     <label>Milestone 2 check</label>
-    <select id="courseSelect"><option value="">Run auth test first ↑</option></select>
+    <select id="courseSelect"><option value="">Run auth test first</option></select>
     <button id="syncCourse">Sync Selected Course Data</button>
     <div id="syncResult" style="font-size: 11px; color: #9cf; word-wrap: break-word;"></div>
 
