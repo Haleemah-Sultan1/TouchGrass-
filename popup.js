@@ -8,23 +8,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const syncBtn = document.getElementById("syncCourse");
   const syncResult = document.getElementById("syncResult");
 
-  // Dark mode toggle
-  const darkToggle = document.getElementById('dark-toggle');
-  getActiveClassId((classId, tabId) => {
-    if (!tabId) return;
-    chrome.tabs.sendMessage(tabId, { type: 'GET_DARK_MODE' }, (res) => {
-      if (chrome.runtime.lastError) return;
-      darkToggle.checked = !!res?.enabled;
-    });
-  });
-
-  darkToggle.addEventListener('change', () => {
-    getActiveClassId((classId, tabId) => {
-      if (!tabId) return;
-      chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_DARK_MODE' });
-    });
-  });
-
   function populateCourseDropdown(courses) {
     courseSelect.innerHTML = "";
     if (!courses || courses.length === 0) {
@@ -39,8 +22,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Repopulate from last known course list on popup reopen, so the
-  // dropdown isn't empty every time until you rerun the auth test.
   chrome.storage.local.get("knownCourses", (data) => {
     if (data.knownCourses) populateCourseDropdown(data.knownCourses);
   });
@@ -54,11 +35,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (resp.ok) {
         const names = resp.courses.map(c => c.name).join(", ") || "(none found)";
-        authResult.textContent = `✅ Success! Courses: ${names}`;
+        authResult.textContent = `OK! Courses: ${names}`;
         populateCourseDropdown(resp.courses);
         chrome.storage.local.set({ knownCourses: resp.courses });
       } else {
-        authResult.textContent = `❌ Failed: ${resp.error}`;
+        authResult.textContent = `Failed: ${resp.error}`;
       }
     });
   });
@@ -81,9 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const breakdown = Object.entries(groups)
           .map(([name, items]) => `${name}: ${items.length}`)
           .join(" | ");
-        syncResult.textContent = `✅ Total: ${totalItems} items — ${breakdown}`;
+        syncResult.textContent = `Total: ${totalItems} items — ${breakdown}`;
       } else {
-        syncResult.textContent = `❌ Failed: ${resp.error}`;
+        syncResult.textContent = `Failed: ${resp.error}`;
       }
     });
   });
@@ -136,7 +117,27 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   });
-});
+
+  // Dark mode toggle — runs after DOM is ready, queries tab directly
+  const darkToggle = document.getElementById('dark-toggle');
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0]?.id;
+    if (!tabId) return;
+
+    // Load current dark mode state and reflect it in the toggle
+    chrome.tabs.sendMessage(tabId, { type: 'GET_DARK_MODE' }, (res) => {
+      if (chrome.runtime.lastError) return;
+      if (darkToggle) darkToggle.checked = !!res?.enabled;
+    });
+
+    if (darkToggle) {
+      darkToggle.addEventListener('change', () => {
+        chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_DARK_MODE' });
+      });
+    }
+  });
+
+}); // end DOMContentLoaded
 
 // ---- Tab switching ----
 document.querySelectorAll('.tab').forEach(tab => {
@@ -155,7 +156,8 @@ function getActiveClassId(callback) {
     const url = tabs[0]?.url || '';
     const match = url.match(/\/(c|r)\/([^\/]+)/);
     const classId = match ? match[2] : null;
-    document.getElementById('class-id-display').textContent = classId ? `#${classId.slice(0, 8)}` : 'no class';
+    const display = document.getElementById('class-id-display');
+    if (display) display.textContent = classId ? `#${classId.slice(0, 8)}` : 'no class';
     callback(classId, tabs[0]?.id);
   });
 }
@@ -166,10 +168,10 @@ getActiveClassId((classId, tabId) => {
     setStatus('Not on a GCR class page', 'err');
     return;
   }
-
   chrome.storage.local.get("classPeople", (data) => {
     const people = (data.classPeople || {})[classId];
     const select = document.getElementById('teacher-select');
+    if (!select) return;
     if (people?.teachers?.length) {
       people.teachers.forEach(name => {
         const opt = document.createElement('option');
@@ -178,7 +180,6 @@ getActiveClassId((classId, tabId) => {
         select.appendChild(opt);
       });
     }
-    // Restore saved filter
     chrome.storage.local.get("activeFilters", (fdata) => {
       const saved = (fdata.activeFilters || {})[classId];
       if (saved) select.value = saved;
@@ -186,32 +187,39 @@ getActiveClassId((classId, tabId) => {
   });
 });
 
-// ---- Apply filter ----
-document.getElementById('apply-btn').addEventListener('click', () => {
-  const teacher = document.getElementById('teacher-select').value;
-  getActiveClassId((classId, tabId) => {
-    if (!tabId) return;
-    chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher }, (res) => {
-      if (chrome.runtime.lastError) {
-        setStatus('Could not reach page — refresh GCR', 'err');
-        return;
-      }
-      const label = teacher === 'all' ? 'Showing all' : `Filtered: ${teacher}`;
-      setStatus(`${label} · ${res?.postsFound ?? 0} posts found`, 'ok');
+// ---- Apply filter (new UI) ----
+const applyBtnNew = document.getElementById('apply-btn');
+if (applyBtnNew) {
+  applyBtnNew.addEventListener('click', () => {
+    const teacher = document.getElementById('teacher-select')?.value;
+    getActiveClassId((classId, tabId) => {
+      if (!tabId) return;
+      chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher }, (res) => {
+        if (chrome.runtime.lastError) {
+          setStatus('Could not reach page — refresh GCR', 'err');
+          return;
+        }
+        const label = teacher === 'all' ? 'Showing all' : `Filtered: ${teacher}`;
+        setStatus(`${label} · ${res?.postsFound ?? 0} posts found`, 'ok');
+      });
     });
   });
-});
+}
 
 // ---- Clear filter ----
-document.getElementById('clear-btn').addEventListener('click', () => {
-  document.getElementById('teacher-select').value = 'all';
-  getActiveClassId((classId, tabId) => {
-    if (!tabId) return;
-    chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher: 'all' }, () => {
-      setStatus('Filter cleared', 'ok');
+const clearBtn = document.getElementById('clear-btn');
+if (clearBtn) {
+  clearBtn.addEventListener('click', () => {
+    const select = document.getElementById('teacher-select');
+    if (select) select.value = 'all';
+    getActiveClassId((classId, tabId) => {
+      if (!tabId) return;
+      chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher: 'all' }, () => {
+        setStatus('Filter cleared', 'ok');
+      });
     });
   });
-});
+}
 
 // ---- Load pinned posts ----
 function timeAgo(ts) {
@@ -243,7 +251,9 @@ function loadPins() {
 function renderPins(pins, classId, tabId) {
   const list = document.getElementById('pinned-list');
   const countEl = document.getElementById('pin-count');
-  countEl.textContent = pins.length ? `(${pins.length})` : '';
+  if (countEl) countEl.textContent = pins.length ? `(${pins.length})` : '';
+
+  if (!list) return;
 
   if (!pins.length) {
     list.innerHTML = `
@@ -265,24 +275,21 @@ function renderPins(pins, classId, tabId) {
         <div class="pin-snippet">${escapeHtml(pin.snippet)}</div>
         <div class="pin-time">${timeAgo(pin.pinnedAt)}</div>
       </div>
-      <button class="unpin-btn" title="Unpin" data-id="${pin.id}">✕</button>
+      <button class="unpin-btn" title="Unpin" data-id="${pin.id}">x</button>
     `;
 
-    // Scroll to post on click
     item.addEventListener('click', (e) => {
       if (e.target.classList.contains('unpin-btn')) return;
       if (!tabId) return;
       chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_PIN', pinId: pin.id });
     });
 
-    // Unpin from popup
     item.querySelector('.unpin-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       chrome.storage.local.get("pinnedPosts", (data) => {
         const all = data.pinnedPosts || {};
         all[classId] = (all[classId] || []).filter(p => p.id !== pin.id);
         chrome.storage.local.set({ pinnedPosts: all }, () => {
-          // Also send message to update the card on page
           if (tabId) chrome.tabs.sendMessage(tabId, { type: 'UNPIN_FROM_POPUP', pinId: pin.id });
           loadPins();
         });
@@ -294,11 +301,12 @@ function renderPins(pins, classId, tabId) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function setStatus(msg, type = '') {
   const el = document.getElementById('status');
+  if (!el) return;
   el.textContent = msg;
   el.className = type;
 }
