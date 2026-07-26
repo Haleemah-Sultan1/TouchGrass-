@@ -60,6 +60,84 @@ function injectPinStyles() {
       margin-bottom: 6px;
       letter-spacing: 0.02em;
     }
+
+    /* ---- Floating pin bar ---- */
+    #tg-pin-bar {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #1a1a1a;
+      border-radius: 0 0 14px 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+      font-family: sans-serif;
+      max-width: 80vw;
+      overflow: hidden;
+      transition: opacity 0.2s;
+    }
+    #tg-pin-bar.tg-bar-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #tg-pin-bar-label {
+      font-size: 11px;
+      color: #7F77DD;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      margin-right: 4px;
+    }
+    .tg-bar-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 999px;
+      padding: 3px 10px 3px 7px;
+      font-size: 12px;
+      color: #ddd;
+      cursor: pointer;
+      white-space: nowrap;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip:hover {
+      background: #3a3060;
+      border-color: #7F77DD;
+      color: #fff;
+    }
+    .tg-bar-chip-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip-unpin {
+      font-size: 10px;
+      color: #555;
+      margin-left: 2px;
+      cursor: pointer;
+      padding: 0 2px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip-unpin:hover {
+      color: #f87171;
+      background: rgba(248,113,113,0.15);
+    }
+    #tg-pin-bar-empty {
+      font-size: 12px;
+      color: #444;
+      font-style: italic;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -77,12 +155,13 @@ function savePinnedPosts(classId, pins) {
   chrome.storage.local.get("pinnedPosts", (data) => {
     const all = data.pinnedPosts || {};
     all[classId] = pins;
-    chrome.storage.local.set({ pinnedPosts: all });
+    chrome.storage.local.set({ pinnedPosts: all }, () => {
+      refreshPinBar(classId);
+    });
   });
 }
 
 function makePinId(el) {
-  // Use data-stream-item-id if available, else hash first 80 chars of text
   const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
   if (streamId) return streamId;
   const text = el.innerText?.trim().slice(0, 80) || '';
@@ -92,6 +171,98 @@ function makePinId(el) {
     hash |= 0;
   }
   return 'tg_' + Math.abs(hash).toString(36);
+}
+
+// ==================== FLOATING PIN BAR ====================
+
+function getOrCreatePinBar() {
+  let bar = document.getElementById('tg-pin-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'tg-pin-bar';
+    bar.innerHTML = `
+      <span id="tg-pin-bar-label">📍 Pinned</span>
+      <span id="tg-pin-bar-chips"></span>
+    `;
+    document.body.appendChild(bar);
+  }
+  return bar;
+}
+
+function refreshPinBar(classId) {
+  if (!classId) return;
+  getPinnedPosts(classId, (pins) => {
+    const bar = getOrCreatePinBar();
+    const chipsEl = document.getElementById('tg-pin-bar-chips');
+    if (!chipsEl) return;
+    chipsEl.innerHTML = '';
+
+    if (!pins.length) {
+      bar.classList.add('tg-bar-hidden');
+      return;
+    }
+
+    bar.classList.remove('tg-bar-hidden');
+
+    pins.forEach(pin => {
+      const chip = document.createElement('span');
+      chip.className = 'tg-bar-chip';
+      chip.title = pin.snippet;
+
+      const shortText = pin.snippet.slice(0, 40) + (pin.snippet.length > 40 ? '…' : '');
+
+      chip.innerHTML = `
+        <span class="tg-bar-chip-icon">📌</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(shortText)}</span>
+        <span class="tg-bar-chip-unpin" data-pinid="${pin.id}" title="Unpin">✕</span>
+      `;
+
+      // Click chip body → scroll to post
+      chip.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tg-bar-chip-unpin')) return;
+        scanStreamPosts();
+        const match = scannedPosts.find(({ el }) => makePinId(el) === pin.id);
+        if (match) {
+          scrollToMatch(match.el);
+          match.el.style.transition = 'box-shadow 0.3s';
+          match.el.style.boxShadow = '0 0 0 5px rgba(127,119,221,0.55)';
+          setTimeout(() => { match.el.style.boxShadow = ''; }, 1600);
+        }
+      });
+
+      // Click ✕ → unpin directly from bar
+      chip.querySelector('.tg-bar-chip-unpin').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pinId = e.target.getAttribute('data-pinid');
+        getPinnedPosts(classId, (pins) => {
+          const updated = pins.filter(p => p.id !== pinId);
+          savePinnedPosts(classId, updated);
+          // Also remove visual from the card if visible
+          scanStreamPosts();
+          const match = scannedPosts.find(({ el }) => makePinId(el) === pinId);
+          if (match) {
+            match.el.classList.remove('tg-card-pinned');
+            removePinnedBadge(match.el);
+            const btn = match.el.querySelector('.tg-pin-btn');
+            if (btn) {
+              btn.textContent = '📌';
+              btn.title = 'Pin this post';
+              btn.classList.remove('tg-pinned-active');
+            }
+          }
+        });
+      });
+
+      chipsEl.appendChild(chip);
+    });
+  });
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ==================== PIN BUTTON INJECTION ====================
@@ -145,7 +316,6 @@ function injectPinButton(el, classId) {
   btn.title = 'Pin this post';
   btn.setAttribute('aria-label', 'Pin this post');
 
-  // Check if already pinned
   getPinnedPosts(classId, (pins) => {
     if (pins.find(p => p.id === pinId)) {
       btn.textContent = '📍';
@@ -336,7 +506,6 @@ function watchFeed(classId) {
   feedObserver = new MutationObserver(() => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      // Re-inject pin buttons on newly loaded cards
       injectPinButtonsOnAllCards(classId);
       chrome.storage.local.get("activeFilters", (data) => {
         const teacher = (data.activeFilters || {})[classId];
@@ -363,6 +532,7 @@ function handlePageContext() {
     setTimeout(() => {
       scanStreamPosts();
       injectPinButtonsOnAllCards(classId);
+      refreshPinBar(classId);
       loadAndApplySavedFilter(classId);
       watchFeed(classId);
     }, 1000);
@@ -395,10 +565,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getPinnedPosts(msg.classId || currentClassId, (pins) => {
       sendResponse({ pins });
     });
-    return true; // keep channel open for async
+    return true;
   }
   if (msg.type === 'SCROLL_TO_PIN') {
-    // Find the card matching this pinId and scroll to it
     scanStreamPosts();
     const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
     if (match) {
@@ -408,6 +577,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       setTimeout(() => { match.el.style.boxShadow = ''; }, 1500);
     }
     sendResponse({ found: !!match });
+    return true;
+  }
+  if (msg.type === 'UNPIN_FROM_POPUP') {
+    getPinnedPosts(currentClassId, (pins) => {
+      const updated = pins.filter(p => p.id !== msg.pinId);
+      savePinnedPosts(currentClassId, updated);
+      scanStreamPosts();
+      const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
+      if (match) {
+        match.el.classList.remove('tg-card-pinned');
+        removePinnedBadge(match.el);
+        const btn = match.el.querySelector('.tg-pin-btn');
+        if (btn) {
+          btn.textContent = '📌';
+          btn.title = 'Pin this post';
+          btn.classList.remove('tg-pinned-active');
+        }
+      }
+    });
+    sendResponse({ ok: true });
     return true;
   }
   return true;
