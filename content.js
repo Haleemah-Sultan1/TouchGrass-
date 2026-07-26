@@ -215,9 +215,38 @@ function injectDarkModeStyles() {
   document.head.appendChild(style);
 }
 
+// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
+// so GCR's Material Web Components (which render inside shadow DOM) never
+// pick up the dark theme unless we push the styles directly into each root. ----
+
+function injectStyleIntoRoot(root) {
+  if (root.querySelector('#tg-dark-styles-shadow')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles-shadow';
+  style.textContent = `
+    * { color: #e8e8e8 !important; box-shadow: none !important; }
+    div, section, article, li, ul, form, header, nav, aside, footer, main {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+  `;
+  root.appendChild(style);
+}
+
+function patchShadowRoots(node = document.body) {
+  const all = node.querySelectorAll('*');
+  all.forEach(el => {
+    if (el.shadowRoot) {
+      injectStyleIntoRoot(el.shadowRoot);
+      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
+    }
+  });
+}
+
 function applyDarkMode(enabled) {
   if (enabled) {
     document.body.classList.add('tg-dark');
+    patchShadowRoots();
   } else {
     document.body.classList.remove('tg-dark');
   }
@@ -597,22 +626,6 @@ function loadAndApplySavedFilter(classId) {
   });
 }
 
-// function watchFeed(classId) {
-//   if (feedObserver) feedObserver.disconnect();
-//   const mainArea = document.querySelector('main') || document.body;
-//   feedObserver = new MutationObserver(() => {
-//     clearTimeout(debounceTimer);
-//     debounceTimer = setTimeout(() => {
-//       injectPinButtonsOnAllCards(classId);
-//       chrome.storage.local.get("activeFilters", (data) => {
-//         const teacher = (data.activeFilters || {})[classId];
-//         if (teacher && teacher !== 'all') applyFilter(teacher);
-//       });
-//     }, 800);
-//   });
-//   feedObserver.observe(mainArea, { childList: true, subtree: true });
-// }
-
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
@@ -621,6 +634,9 @@ function watchFeed(classId) {
     debounceTimer = setTimeout(() => {
       injectPinButtonsOnAllCards(classId);
       refreshPinBar(classId);
+      if (document.body.classList.contains('tg-dark')) {
+        patchShadowRoots();
+      }
       chrome.storage.local.get("activeFilters", (data) => {
         const teacher = (data.activeFilters || {})[classId];
         if (teacher && teacher !== 'all') {
@@ -757,4 +773,3 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return true;
 });
-
