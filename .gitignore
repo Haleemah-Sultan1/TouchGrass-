@@ -1,0 +1,14 @@
+key.pem
+.vs/
+*.slnx
+*.sqlite
+*.suo
+*.user
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.key
+.DS_Store
+Thumbs.db
