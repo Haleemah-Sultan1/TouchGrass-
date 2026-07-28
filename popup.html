@@ -39,7 +39,7 @@
             margin-bottom: 4px;
         }
 
-        select, button {
+        select, button, input[type=text] {
             width: 100%;
             margin-bottom: 8px;
             padding: 8px;
@@ -64,65 +64,41 @@
                 background: #0056b3;
             }
 
-        .toggle-wrap {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 12px 0;
+        #manualTopicsBox {
+            display: none;
         }
 
-        .toggle-label-text {
+        .questionCard {
+            background: #1c1c1c;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px;
+            margin-bottom: 8px;
             font-size: 12px;
-            color: #aaa;
-            font-weight: 600;
         }
 
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 38px;
-            height: 20px;
-            flex-shrink: 0;
-        }
+            .questionCard .qLabel {
+                font-weight: bold;
+                color: #fca;
+            }
 
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-            position: absolute;
-        }
+            .questionCard .qTopics {
+                color: #9cf;
+            }
 
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: #2a2a2a;
-            border-radius: 20px;
-            transition: 0.2s;
-        }
+            .questionCard .qConcepts {
+                color: #9f9;
+            }
 
-        .toggle-slider::before {
-            content: '';
-            position: absolute;
-            width: 14px;
-            height: 14px;
-            left: 3px;
-            top: 3px;
-            background: white;
-            border-radius: 50%;
-            transition: 0.2s;
-        }
+            .questionCard .qDifficulty {
+                color: #f96;
+                font-weight: bold;
+            }
 
-        .toggle-switch input:checked + .toggle-slider {
-            background: #34A853;
-        }
-
-        .toggle-switch input:checked + .toggle-slider::before {
-            transform: translateX(18px);
-        }
+            .questionCard .qReasoning {
+                color: #aaa;
+                font-style: italic;
+            }
     </style>
 </head>
 <body>
@@ -134,14 +110,6 @@
     </select>
 
     <button id="applyFilters">Apply Filter</button>
-
-    <div class="toggle-wrap">
-      <span class="toggle-label-text">Dark mode</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="dark-toggle">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
 
     <label>Milestone 1 check</label>
     <button id="testAuth">Test Classroom API Auth</button>
@@ -156,6 +124,17 @@
     <select id="assignmentSelect"><option value="">Sync a course first ↑</option></select>
     <button id="estimateBtn">Estimate Difficulty</button>
     <div id="difficultyResult" style="font-size: 12px; color: #fc9; word-wrap: break-word;"></div>
+
+    <label>Milestone 5 check: Topic & Concept Breakdown (per question)</label>
+    <button id="analyzeTopicsBtn">Analyze Question-by-Question</button>
+    <button id="useManualTopicsBtn" style="background:#555;">Use My Own Topic List Instead</button>
+    <div id="manualTopicsBox">
+        <label>Enter topics, comma-separated:</label>
+        <input type="text" id="manualTopicsInput" placeholder="e.g. Graphs, Trees, Recursion">
+        <button id="saveManualTopicsBtn">Save Topics & Retry</button>
+    </div>
+    <div id="topicStatus" style="font-size: 12px; color: #fca; word-wrap: break-word;"></div>
+    <div id="topicResult"></div>
 
     <script src="popup.js"></script>
 </body>
