@@ -5,7 +5,7 @@
   "description": "Organizes GCR assignments by deadline/difficulty, opens all attachments in 1 click, and checks your submission before you turn it in.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2bVQ9mK2FJgejit/RXG0Ng7wMWwvaY7msy/dTNNw7QIyEVgW4a1PsW43DjihYyAjJalQQVxilNvwY8lpcTr7O3K5GaQBY1/tPDZ/3yPucmqS7O5I5+ffjfyubBDrNHBw6MaBwg2Tbm6jKOvWLP4j/wyTgh0cNIIW+PMArzRBASnMnh9ydaoiZovXnNZQTSxXNTJgbTxc0fRts3mSzWJzaY+R4mVG00BC6Kk7WYnyMNl8cf+O40u4f99tiLXmE+6zm7tJDOKxOQ72uOqGmsCM702AFeeHlNNLpJ27Nng63zIbP0pm+539TB9mcCFEmZ2caQYE5+QAWUqIm1jtCm+qbwIDAQAB",
   "permissions": [ "storage", "notifications", "alarms", "tabs", "identity" ],
-  "host_permissions": [ "https://classroom.google.com/*", "https://touchgrass-backend.touchgrass.workers.dev/*" ],
+  "host_permissions": [ "https://classroom.google.com/*", "https://touchgrass-backend.touchgrass.workers.dev/*", "https://www.googleapis.com/*" ],
   "oauth2": {
     "client_id": "364093021279-gh710v8c4cd0chsjbmagd03h023ostlc.apps.googleusercontent.com",
     "scopes": [
@@ -14,7 +14,8 @@
       "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
       "https://www.googleapis.com/auth/classroom.topics.readonly",
       "https://www.googleapis.com/auth/classroom.rosters.readonly",
-      "https://www.googleapis.com/auth/classroom.announcements.readonly"
+      "https://www.googleapis.com/auth/classroom.announcements.readonly",
+      "https://www.googleapis.com/auth/drive.readonly"
     ]
   },
   "background": {

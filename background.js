@@ -1,5 +1,6 @@
 import { fetchCourses, syncCourseData, getCachedCourseData } from "./classroomapi.js";
 import { estimateDifficulty } from "./difficulty.js";
+import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
@@ -43,6 +44,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: err.message });
       }
     })();
+    return true;
+  }
+
+  if (msg.type === "ANALYZE_TOPIC_RELEVANCE") {
+    (async () => {
+      try {
+        const cached = await getCachedCourseData(msg.courseId);
+        if (!cached) throw new Error("No synced data for this course — sync it first.");
+
+        const item = cached.courseWork.find((cw) => cw.id === msg.itemId);
+        if (!item) throw new Error("Assignment not found in synced data.");
+
+        // Manual topics (if set) take priority when the student has
+        // explicitly overridden Classroom's own (often non-subject-based) topics.
+        let topics = await getManualTopics(msg.courseId);
+        if (!topics || topics.length === 0) {
+          topics = cached.topics;
+        }
+
+        const result = await analyzeTopicRelevance(item, topics);
+        sendResponse({ ok: true, result, itemTitle: item.title });
+      } catch (err) {
+        if (err instanceof NoTopicsError) {
+          sendResponse({ ok: false, needsManualTopics: true, error: err.message });
+        } else {
+          sendResponse({ ok: false, error: err.message });
+        }
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === "SAVE_MANUAL_TOPICS") {
+    saveManualTopics(msg.courseId, msg.topicsCsv)
+      .then((topics) => sendResponse({ ok: true, topics }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 });
