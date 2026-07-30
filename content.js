@@ -215,10 +215,6 @@ function injectDarkModeStyles() {
   document.head.appendChild(style);
 }
 
-// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
-// so GCR's Material Web Components (which render inside shadow DOM) never
-// pick up the dark theme unless we push the styles directly into each root. ----
-
 function injectStyleIntoRoot(root) {
   if (root.querySelector('#tg-dark-styles-shadow')) return;
   const style = document.createElement('style');
@@ -238,7 +234,7 @@ function patchShadowRoots(node = document.body) {
   all.forEach(el => {
     if (el.shadowRoot) {
       injectStyleIntoRoot(el.shadowRoot);
-      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
+      patchShadowRoots(el.shadowRoot);
     }
   });
 }
@@ -343,7 +339,6 @@ function refreshPinBar(classId) {
         <span class="tg-bar-chip-unpin" data-pinid="${pin.id}" title="Unpin">✕</span>
       `;
 
-      // Click chip body → scroll to post
       chip.addEventListener('click', (e) => {
         if (e.target.classList.contains('tg-bar-chip-unpin')) return;
         scanStreamPosts();
@@ -356,14 +351,12 @@ function refreshPinBar(classId) {
         }
       });
 
-      // Click ✕ → unpin directly from bar
       chip.querySelector('.tg-bar-chip-unpin').addEventListener('click', (e) => {
         e.stopPropagation();
         const pinId = e.target.getAttribute('data-pinid');
         getPinnedPosts(classId, (pins) => {
           const updated = pins.filter(p => p.id !== pinId);
           savePinnedPosts(classId, updated);
-          // Also remove visual from the card if visible
           scanStreamPosts();
           const match = scannedPosts.find(({ el }) => makePinId(el) === pinId);
           if (match) {
@@ -466,7 +459,7 @@ function injectPinButtonsOnAllCards(classId) {
   scannedPosts.forEach(({ el }) => injectPinButton(el, classId));
 }
 
-// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
+// ==================== EXISTING FUNCTIONS ====================
 
 function getClassId() {
   const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
@@ -539,6 +532,13 @@ function scanStreamPosts() {
   return scannedPosts;
 }
 
+// NEW: tells us whether the page is scrolled near its current bottom —
+// used only to decide whether to say "found so far" vs a final count.
+// This does NOT scroll anything itself.
+function isNearPageBottom() {
+  return (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 150);
+}
+
 function clearHighlights() {
   document.querySelectorAll('.tg-highlight').forEach(el => {
     el.classList.remove('tg-highlight');
@@ -557,9 +557,13 @@ function removeMatchNav() {
   document.getElementById('tg-match-nav')?.remove();
 }
 
-function createMatchNav(matches) {
-  removeMatchNav();
-  const nav = document.createElement('div');
+// CHANGED: takes a second arg, stillLoading — when true, shows
+// "N found (scroll for more)" instead of a fixed "current / total",
+// since we don't force-scroll anymore and don't actually know the total
+// until the user has scrolled through the whole stream themselves.
+function createMatchNav(matches, stillLoading) {
+  const existing = document.getElementById('tg-match-nav');
+  const nav = existing || document.createElement('div');
   nav.id = 'tg-match-nav';
   nav.style.cssText = `
     position: fixed; bottom: 24px; right: 24px; z-index: 999999;
@@ -567,25 +571,37 @@ function createMatchNav(matches) {
     border-radius: 999px; display: flex; align-items: center; gap: 10px;
     font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   `;
+
+  const countLabel = stillLoading
+    ? `${matches.length} found (scroll for more)`
+    : `${currentMatchIndex + 1} / ${matches.length}`;
+
   nav.innerHTML = `
     <button id="tg-prev" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▲</button>
-    <span id="tg-count">1 / ${matches.length}</span>
+    <span id="tg-count">${countLabel}</span>
     <button id="tg-next" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▼</button>
   `;
-  document.body.appendChild(nav);
+  if (!existing) document.body.appendChild(nav);
 
   nav.querySelector('#tg-prev').onclick = () => {
     currentMatchIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
     scrollToMatch(matches[currentMatchIndex]);
-    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+    nav.querySelector('#tg-count').textContent = stillLoading
+      ? `${matches.length} found (scroll for more)`
+      : `${currentMatchIndex + 1} / ${matches.length}`;
   };
   nav.querySelector('#tg-next').onclick = () => {
     currentMatchIndex = (currentMatchIndex + 1) % matches.length;
     scrollToMatch(matches[currentMatchIndex]);
-    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+    nav.querySelector('#tg-count').textContent = stillLoading
+      ? `${matches.length} found (scroll for more)`
+      : `${currentMatchIndex + 1} / ${matches.length}`;
   };
 }
 
+// CHANGED: no auto-scroll-to-load. Just scans whatever's currently
+// rendered, highlights matches, and labels the nav honestly based on
+// whether you've scrolled to the bottom of the loaded stream yet.
 function applyFilter(teacher) {
   scanStreamPosts();
   clearHighlights();
@@ -607,7 +623,7 @@ function applyFilter(teacher) {
   if (matches.length > 0) {
     currentMatchIndex = 0;
     scrollToMatch(matches[0]);
-    createMatchNav(matches);
+    createMatchNav(matches, !isNearPageBottom());
   }
 }
 
@@ -626,6 +642,9 @@ function loadAndApplySavedFilter(classId) {
   });
 }
 
+// CHANGED: when new posts lazy-load in and match the active filter,
+// this now updates the nav's live count and re-labels it "found so far"
+// vs final count — without touching scroll position at all.
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
@@ -640,7 +659,6 @@ function watchFeed(classId) {
       chrome.storage.local.get("activeFilters", (data) => {
         const teacher = (data.activeFilters || {})[classId];
         if (teacher && teacher !== 'all') {
-          // Re-scan and re-apply without scrolling to top again
           const cards = findStreamCards();
           cards.forEach(el => {
             const text = el.innerText?.trim();
@@ -653,12 +671,10 @@ function watchFeed(classId) {
               el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
             }
           });
-          // Rebuild match nav with updated full list
           const matches = Array.from(document.querySelectorAll('.tg-highlight'));
           if (matches.length > 0) {
-            removeMatchNav();
-            createMatchNav(matches);
-            // Don't scroll — keep user where they are
+            createMatchNav(matches, !isNearPageBottom());
+            // no scroll — user stays exactly where they are
           }
         }
       });

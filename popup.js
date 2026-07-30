@@ -230,17 +230,34 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     });
-
-    applyBtn.addEventListener("click", () => {
-      const teacher = teacherFilter.value;
-      if (!tab?.id) return;
-      chrome.tabs.sendMessage(tab.id, { type: 'SET_FILTER', teacher }, (resp) => {
-        if (chrome.runtime.lastError) {
-          debugBox.textContent = `Error: content script not loaded. Reload the Classroom tab.`;
-          return;
+    function sendFilterMessage(tabId, teacher, isRetry = false) {
+  chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher }, (resp) => {
+    if (chrome.runtime.lastError) {
+      if (isRetry) {
+        debugBox.textContent = `Error: couldn't reach the page even after injecting. Try reloading the Classroom tab.`;
+        return;
+      }
+      // Content script wasn't alive on this tab — inject it now, then retry once.
+      chrome.scripting.executeScript(
+        { target: { tabId }, files: ["content.js"] },
+        () => {
+          if (chrome.runtime.lastError) {
+            debugBox.textContent = `Error: ${chrome.runtime.lastError.message}`;
+            return;
+          }
+          sendFilterMessage(tabId, teacher, true);
         }
-        debugBox.textContent = `Filter applied: ${teacher} | ${resp.postsFound} posts scanned`;
-      });
-    });
+      );
+      return;
+    }
+    debugBox.textContent = `Filter applied: ${teacher} | ${resp.postsFound} posts scanned`;
+  });
+}
+
+applyBtn.addEventListener("click", () => {
+  const teacher = teacherFilter.value;
+  if (!tab?.id) return;
+  sendFilterMessage(tab.id, teacher);
+});
   });
 });
