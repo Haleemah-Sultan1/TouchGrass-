@@ -1,3 +1,23 @@
+if (!window.__tgLoaded) {
+  window.__tgLoaded = true;
+
+console.log("TouchGrass GCR loaded");
+
+let currentClassId = null;
+let currentPath = location.pathname;
+let scannedPosts = [];
+let feedObserver = null;
+let debounceTimer = null;
+let currentMatchIndex = -1;
+let currentKnownTotal = null;
+
+window.__tgTeachers = window.__tgTeachers || new Map();
+window.__tgStudents = window.__tgStudents || new Map();
+
+// ... every function and the init calls at the bottom stay EXACTLY as they were ...
+
+ // end of __tgLoaded guard
+
 console.log("TouchGrass GCR loaded");
 
 let currentClassId = null;
@@ -784,3 +804,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return true;
 });
+
+}
