@@ -25,7 +25,7 @@
             color: #aaa;
         }
 
-        input, select {
+        input, select, textarea {
             width: 100%;
             padding: 8px;
             background: #222;
@@ -34,6 +34,7 @@
             border-radius: 4px;
             box-sizing: border-box;
             font-size: 14px;
+            font-family: inherit;
         }
 
         .row {
@@ -115,7 +116,7 @@
             margin-top: 12px;
             color: #fbb;
         }
-        
+
         .subjectRow {
             background: #1c1c1c;
             border: 1px solid #333;
@@ -148,15 +149,45 @@
                 width: 80px;
                 display: inline-block;
             }
+
+        .prefRow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #1c1c1c;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+        }
+
+            .prefRow input[type=checkbox] {
+                width: auto;
+                margin: 0;
+            }
+
+            .prefRow input[type=number] {
+                width: 60px;
+                margin: 0;
+            }
+
+            .prefRow label {
+                margin: 0;
+                flex: 1;
+            }
+
+        #timetableFields, #studyPlanFields {
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <h1>📅 TouchGrass Study Planner</h1>
+    <h1>📅 TouchGrass Planner</h1>
 
     <label>What do you need?</label>
     <select id="modeSelect">
-        <option value="assignments">Complete Assignment Deadlines</option>
-        <option value="subject_study">Prepare for Exams / Study a Subject</option>
+        <option value="timetable">Timetable (Complete Assignment Deadlines)</option>
+        <option value="study_plan">Study Plan (Prepare for Exams / Study a Subject)</option>
     </select>
 
     <div class="row">
@@ -173,16 +204,23 @@
     <label>Free hours available per day</label>
     <input type="number" id="hoursPerDay" min="0.5" max="16" step="0.5" value="3">
 
-    <div id="assignmentModeFields">
+    <!-- ===== Timetable mode fields ===== -->
+    <div id="timetableFields">
         <label>Which subject is your highest priority? (optional)</label>
         <select id="prioritySubject"><option value="">No preference</option></select>
 
-        <label>Which assignment is most important to finish first? (optional)</label>
-        <select id="priorityAssignment"><option value="">No preference</option></select>
+        <label>Which type of work do you want to prioritize? (select up to 3, ranked)</label>
+        <div id="workTypeChecklist">
+            <div class="prefRow"><input type="checkbox" class="prefChk" data-type="Assignments"><label>Assignments</label><input type="number" class="prefRank" min="1" max="3" placeholder="rank"></div>
+            <div class="prefRow"><input type="checkbox" class="prefChk" data-type="Quizzes"><label>Quizzes</label><input type="number" class="prefRank" min="1" max="3" placeholder="rank"></div>
+            <div class="prefRow"><input type="checkbox" class="prefChk" data-type="Lab Tasks"><label>Lab Tasks</label><input type="number" class="prefRank" min="1" max="3" placeholder="rank"></div>
+            <div class="prefRow"><input type="checkbox" class="prefChk" data-type="Projects"><label>Projects</label><input type="number" class="prefRank" min="1" max="3" placeholder="rank"></div>
+        </div>
     </div>
 
-    <div id="subjectStudyModeFields" style="display:none;">
-        <label>Select subjects to study, set a priority rank (1 = highest), and list topics (comma-separated):</label>
+    <!-- ===== Study Plan mode fields ===== -->
+    <div id="studyPlanFields">
+        <label>Select 1–5 subjects to study, set a priority rank (1 = highest), and list topics:</label>
         <div id="subjectChecklist"></div>
     </div>
 
