@@ -1,7 +1,6 @@
 // studyPlanner.js
-// Deterministic scheduling logic. Takes a task list + student availability
-// and produces a day-by-day plan. No LLM involved here — schedule math
-// should be exact and predictable, not "creatively" generated.
+// Deterministic scheduling logic for both modes. No LLM involved here —
+// schedule math should be exact and predictable, not "creatively" generated.
 
 const MAX_SESSION_MINUTES = 45;
 
@@ -24,7 +23,6 @@ function formatDate(d) {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
-// Splits one task's total estimated minutes into <=45-min chunks.
 function splitIntoChunks(task) {
   const chunks = [];
   let remaining = task.estimatedMinutes;
@@ -46,21 +44,26 @@ function splitIntoChunks(task) {
   return chunks;
 }
 
-// tasks: [{ title, courseName, dueDate (Date), estimatedMinutes, difficultyScore }]
-// options: { startDate, endDate, hoursPerDay, priorityCourseName, priorityTaskTitle }
+// ---------- Timetable mode: deadline-driven assignment completion ----------
+// tasks: [{ title, courseName, dueDate (Date), estimatedMinutes, difficultyScore, typeLabel }]
+// options: { startDate, endDate, hoursPerDay, priorityCourseName, preferenceTypes: [string,...] ordered }
 export function buildSchedule(tasks, options) {
-  const { startDate, endDate, hoursPerDay, priorityCourseName, priorityTaskTitle } = options;
+  const { startDate, endDate, hoursPerDay, priorityCourseName, preferenceTypes } = options;
   const minutesPerDay = Math.round(hoursPerDay * 60);
   const days = enumerateDays(startDate, endDate);
+  const typeRank = (label) => {
+    if (!preferenceTypes || preferenceTypes.length === 0) return 999;
+    const idx = preferenceTypes.indexOf(label);
+    return idx === -1 ? 999 : idx;
+  };
 
   const sorted = [...tasks].sort((a, b) => {
-    const aIsPriorityTask = priorityTaskTitle && a.title === priorityTaskTitle;
-    const bIsPriorityTask = priorityTaskTitle && b.title === priorityTaskTitle;
-    if (aIsPriorityTask !== bIsPriorityTask) return aIsPriorityTask ? -1 : 1;
-
     const aIsPrioritySubject = priorityCourseName && a.courseName === priorityCourseName;
     const bIsPrioritySubject = priorityCourseName && b.courseName === priorityCourseName;
     if (aIsPrioritySubject !== bIsPrioritySubject) return aIsPrioritySubject ? -1 : 1;
+
+    const typeDiff = typeRank(a.typeLabel) - typeRank(b.typeLabel);
+    if (typeDiff !== 0) return typeDiff;
 
     const dueDiff = a.dueDate - b.dueDate;
     if (dueDiff !== 0) return dueDiff;
@@ -78,7 +81,7 @@ export function buildSchedule(tasks, options) {
     let placed = false;
 
     for (const day of schedule) {
-      if (day.date > dueDateOnly) break; // don't schedule past the deadline
+      if (day.date > dueDateOnly) break; // never schedule past the deadline
       if (day.minutesUsed + chunk.minutes <= minutesPerDay) {
         day.sessions.push(chunk);
         day.minutesUsed += chunk.minutes;
@@ -93,31 +96,46 @@ export function buildSchedule(tasks, options) {
   return { schedule, overflow };
 }
 
-// ---------- Mode B: subject/topic study plan (exam prep, no deadlines) ----------
-// subjects: [{ name, priority (1 = highest), topics: [string, ...] }]
+// ---------- Study Plan mode: subject/topic study (no deadlines) ----------
+// subjects: [{ name, priority (1 = highest), topics: [string,...], weakTopics: [string,...] }]
 // options: { startDate, endDate, hoursPerDay }
 export function buildSubjectStudySchedule(subjects, options) {
   const { startDate, endDate, hoursPerDay } = options;
   const minutesPerDay = Math.round(hoursPerDay * 60);
   const days = enumerateDays(startDate, endDate);
 
-  // Lower priority number = more weight. +2 avoids a weight of 0 for the lowest-ranked subject.
   const maxPriority = Math.max(...subjects.map((s) => s.priority));
   const weighted = subjects.map((s) => ({ ...s, weight: maxPriority - s.priority + 2 }));
   const totalWeight = weighted.reduce((sum, s) => sum + s.weight, 0);
   const totalMinutesAvailable = days.length * minutesPerDay;
 
-  // Build each subject's chunk queue, cycling through its topics until its
-  // proportional share of total time is used up.
   const remainingChunks = {};
   weighted.forEach((s) => {
+    // Weak topics appear twice in the rotation so they naturally get
+    // roughly double the study time relative to topics the student already knows.
+    const weakSet = new Set((s.weakTopics || []).map((t) => t.toLowerCase()));
+    const topicPool = [];
+    s.topics.forEach((t) => {
+      topicPool.push(t);
+      if (weakSet.has(t.toLowerCase())) topicPool.push(t);
+    });
+
     const allocatedMinutes = Math.round(totalMinutesAvailable * (s.weight / totalWeight));
     const chunks = [];
     let remaining = allocatedMinutes;
     let topicIndex = 0;
-    while (remaining > 0 && s.topics.length > 0) {
+    while (remaining > 0 && topicPool.length > 0) {
       const minutes = Math.min(MAX_SESSION_MINUTES, remaining);
-      chunks.push({ title: s.topics[topicIndex % s.topics.length], courseName: s.name, minutes, difficultyScore: null, chunkLabel: null, dueDate: null });
+      const topic = topicPool[topicIndex % topicPool.length];
+      const isWeak = weakSet.has(topic.toLowerCase());
+      chunks.push({
+        title: isWeak ? `${topic} (weak spot)` : topic,
+        courseName: s.name,
+        minutes,
+        difficultyScore: null,
+        chunkLabel: null,
+        dueDate: null,
+      });
       remaining -= minutes;
       topicIndex++;
     }
