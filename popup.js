@@ -1,4 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("openPlanner").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
+  });
+
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
   const debugBox = document.getElementById("debugBox");
@@ -28,6 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const opt = document.createElement("option");
       opt.value = c.id;
       opt.textContent = c.name;
+      opt.dataset.name = c.name;
       courseSelect.appendChild(opt);
     });
   }
@@ -93,8 +98,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Repopulate from last known course list on popup reopen, so the
-  // dropdown isn't empty every time until you rerun the auth test.
   chrome.storage.local.get("knownCourses", (data) => {
     if (data.knownCourses) populateCourseDropdown(data.knownCourses);
   });
@@ -119,12 +122,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   syncBtn.addEventListener("click", () => {
     const courseId = courseSelect.value;
+    const courseName = courseSelect.selectedOptions[0]?.dataset.name || courseSelect.selectedOptions[0]?.textContent;
     if (!courseId) {
       syncResult.textContent = "Pick a course first.";
       return;
     }
-    syncResult.textContent = "Syncing topics, coursework, materials, roster...";
-    chrome.runtime.sendMessage({ type: "SYNC_COURSE_DATA", courseId }, (resp) => {
+    syncResult.textContent = "Syncing topics, coursework, materials, roster, submissions...";
+    chrome.runtime.sendMessage({ type: "SYNC_COURSE_DATA", courseId, courseName }, (resp) => {
       if (chrome.runtime.lastError) {
         syncResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
         return;
@@ -184,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.sendMessage({ type: "SAVE_MANUAL_TOPICS", courseId, topicsCsv }, (resp) => {
       if (resp.ok) {
         manualTopicsBox.style.display = "none";
-        runTopicAnalysis(); // retry now that manual topics are saved
+        runTopicAnalysis();
       } else {
         topicStatus.textContent = `❌ Failed to save topics: ${resp.error}`;
       }
