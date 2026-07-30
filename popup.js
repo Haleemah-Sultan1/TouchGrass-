@@ -230,34 +230,56 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     });
-    function sendFilterMessage(tabId, teacher, isRetry = false) {
-  chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher }, (resp) => {
-    if (chrome.runtime.lastError) {
-      if (isRetry) {
-        debugBox.textContent = `Error: couldn't reach the page even after injecting. Try reloading the Classroom tab.`;
-        return;
-      }
-      // Content script wasn't alive on this tab — inject it now, then retry once.
-      chrome.scripting.executeScript(
-        { target: { tabId }, files: ["content.js"] },
-        () => {
-          if (chrome.runtime.lastError) {
-            debugBox.textContent = `Error: ${chrome.runtime.lastError.message}`;
+
+    function sendFilterMessage(tabId, teacher, knownTotal, isRetry = false) {
+      chrome.tabs.sendMessage(tabId, { type: 'SET_FILTER', teacher, knownTotal }, (resp) => {
+        if (chrome.runtime.lastError) {
+          if (isRetry) {
+            debugBox.textContent = `Error: couldn't reach the page even after injecting. Try reloading the Classroom tab.`;
             return;
           }
-          sendFilterMessage(tabId, teacher, true);
+          chrome.scripting.executeScript(
+            { target: { tabId }, files: ["content.js"] },
+            () => {
+              if (chrome.runtime.lastError) {
+                debugBox.textContent = `Error: ${chrome.runtime.lastError.message}`;
+                return;
+              }
+              sendFilterMessage(tabId, teacher, knownTotal, true);
+            }
+          );
+          return;
+        }
+        const totalNote = knownTotal != null ? ` | ${knownTotal} total announcements from this teacher` : "";
+        debugBox.textContent = `Filter applied: ${teacher} | ${resp.postsFound} posts scanned${totalNote}`;
+      });
+    }
+
+    // NEW: fetches the real announcement count from synced API data (no
+    // DOM scanning) and passes it along with the filter so content.js can
+    // show an accurate total instead of guessing from scroll position.
+    function applyFilterWithRealCount() {
+      const teacher = teacherFilter.value;
+      if (!tab?.id) return;
+      if (!classId) {
+        sendFilterMessage(tab.id, teacher, null);
+        return;
+      }
+      chrome.runtime.sendMessage(
+        { type: "GET_TEACHER_ANNOUNCEMENT_COUNT", courseId: classId, teacher },
+        (resp) => {
+          if (chrome.runtime.lastError || !resp || !resp.ok) {
+            if (resp?.needsSync) {
+              debugBox.textContent = "This course hasn't been synced yet — sync it (above) for an accurate total.";
+            }
+            sendFilterMessage(tab.id, teacher, null);
+            return;
+          }
+          sendFilterMessage(tab.id, teacher, resp.total);
         }
       );
-      return;
     }
-    debugBox.textContent = `Filter applied: ${teacher} | ${resp.postsFound} posts scanned`;
-  });
-}
 
-applyBtn.addEventListener("click", () => {
-  const teacher = teacherFilter.value;
-  if (!tab?.id) return;
-  sendFilterMessage(tab.id, teacher);
-});
+    applyBtn.addEventListener("click", applyFilterWithRealCount);
   });
 });

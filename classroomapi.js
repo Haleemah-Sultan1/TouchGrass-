@@ -114,6 +114,17 @@ export async function fetchCourseWorkMaterials(courseId) {
   );
 }
 
+// NEW: announcements are the actual "stream posts" the teacher-filter
+// feature cares about — fetching these directly means we get the true,
+// complete list (and each one's creatorUserId) with no dependency on
+// how much of the DOM Classroom has lazily rendered.
+export async function fetchAnnouncements(courseId) {
+  return apiFetchAllPages(
+    `https://classroom.googleapis.com/v1/courses/${courseId}/announcements?`,
+    "announcements"
+  );
+}
+
 export async function fetchRoster(courseId) {
   const [teachers, students] = await Promise.all([
     apiFetchAllPages(`https://classroom.googleapis.com/v1/courses/${courseId}/teachers?`, "teachers"),
@@ -161,6 +172,20 @@ export function debugPrintGroups(groups) {
     });
   });
   console.log("───────────────────────────────");
+}
+
+// Maps each announcement's creatorUserId to a teacher display name using
+// the roster, so filtering by teacher NAME (what the popup dropdown shows)
+// works against the real API data instead of scraped DOM text.
+function attachTeacherNames(announcements, teachers) {
+  const nameById = {};
+  (teachers || []).forEach((t) => {
+    nameById[t.userId] = t.profile?.name?.fullName || "(unknown teacher)";
+  });
+  return (announcements || []).map((a) => ({
+    ...a,
+    creatorName: nameById[a.creatorUserId] || "(unknown teacher)",
+  }));
 }
 
 // ---------- Cache read/write ----------
@@ -213,11 +238,12 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   }
 
   console.log(`🔄 Fetching fresh data for course ${courseId}...`);
-  const [topics, courseWork, courseWorkMaterials, roster] = await Promise.all([
+  const [topics, courseWork, courseWorkMaterials, roster, announcementsRaw] = await Promise.all([
     fetchTopics(courseId),
     fetchCourseWork(courseId),
     fetchCourseWorkMaterials(courseId),
     fetchRoster(courseId),
+    fetchAnnouncements(courseId),
   ]);
 
   // Fetch submission status per assignment so we know what's already done.
@@ -229,14 +255,16 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
     cw.submissionState = sub?.state || "UNKNOWN"; // TURNED_IN, RETURNED, CREATED, or UNKNOWN
   });
 
+  const announcements = attachTeacherNames(announcementsRaw, roster.teachers);
+
   const groups = groupContentByTopic(courseWork, courseWorkMaterials, topics);
   debugPrintGroups(groups);
 
-  const payload = { courseId, courseName, topics, courseWork, courseWorkMaterials, roster, groups };
+  const payload = { courseId, courseName, topics, courseWork, courseWorkMaterials, roster, groups, announcements };
   const saved = await setCachedCourseData(courseId, payload);
 
   const totalItems = courseWork.length + courseWorkMaterials.length;
-  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups`);
+  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
   return saved;
