@@ -1,7 +1,4 @@
-
-
-
-import { fetchCourses, fetchAllCoursesAnyState, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
+import { fetchCourses, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
 import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
@@ -10,30 +7,46 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
 });
 
-// Resolves course IDs to display names. Tries the cached knownCourses list
-// first (fast, no API call); for any IDs still unresolved (e.g. a course
-// that's since been archived and dropped from the ACTIVE list), falls back
-// to a live fetchCourses() call so we still get real names when possible.
-async function resolveCourseNames(courseIds) {
+// Resolves course IDs to display names using only ACTIVE (non-archived)
+// courses. Returns a map of id -> name; any course ID not found here is
+// archived (or otherwise inaccessible) and should be skipped by callers,
+// never shown as a raw ID.
+async function resolveActiveCourseNames() {
   const knownCourses = await new Promise((resolve) => {
     chrome.storage.local.get("knownCourses", (data) => resolve(data.knownCourses || []));
   });
   const nameById = Object.fromEntries(knownCourses.map((c) => [c.id, c.name]));
 
- const unresolved = courseIds.filter((id) => !nameById[id]);
-  if (unresolved.length > 0) {
-    try {
-      const liveCourses = await fetchAllCoursesAnyState();
-      liveCourses.forEach((c) => { nameById[c.id] = c.name; });
-    } catch (err) {
-      console.warn("Couldn't fetch live course names as fallback:", err.message);
-    }
+  try {
+    const liveCourses = await fetchCourses(); // ACTIVE only
+    liveCourses.forEach((c) => { nameById[c.id] = c.name; });
+  } catch (err) {
+    console.warn("Couldn't refresh live active course names:", err.message);
   }
 
   return nameById;
 }
 
-// ---------- Messages from popup ----------
+// Buddy Program is a mentorship/social class, not an academic subject with
+// assignments to schedule around — always excluded from the planner.
+function isExcludedCourseName(name) {
+  return /buddy/i.test(name || "");
+}
+
+// Classifies a piece of coursework into a rough "type of work" bucket, used
+// for the Timetable mode's ranked work-type preference.
+function detectTaskType(item, topicName) {
+  if (item.workType === "SHORT_ANSWER_QUESTION" || item.workType === "MULTIPLE_CHOICE_QUESTION") {
+    return "Quizzes";
+  }
+  const text = `${topicName || ""} ${item.title || ""}`;
+  if (/lab/i.test(text)) return "Lab Tasks";
+  if (/project/i.test(text)) return "Projects";
+  if (/quiz/i.test(text)) return "Quizzes";
+  return "Assignments";
+}
+
+// ---------- Messages from popup / planner ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "TEST_AUTH") {
     fetchCourses()
@@ -107,6 +120,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+
+  // Every active (non-archived, non-Buddy) course — used to populate the
+  // Study Plan mode's subject checklist, since any current course is fair game.
   if (msg.type === "GET_ACTIVE_COURSES") {
     fetchCourses()
       .then((courses) => {
@@ -116,30 +132,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
-  if (msg.type === "GENERATE_SUBJECT_STUDY_PLAN") {
-    try {
-      const startDate = new Date(msg.startDate);
-      const endDate = new Date(msg.endDate);
-      const scheduleResult = buildSubjectStudySchedule(msg.subjects, {
-        startDate,
-        endDate,
-        hoursPerDay: msg.hoursPerDay,
-      });
-      sendResponse({ ok: true, scheduleResult });
-    } catch (err) {
-      sendResponse({ ok: false, error: err.message });
-    }
-    return true;
-  }
+
+  // Courses that currently have pending (not-yet-submitted) assignments —
+  // used to populate the Timetable mode's priority-subject dropdown.
+  // Archived courses are silently skipped, never shown as a raw ID.
   if (msg.type === "GET_ALL_SYNCED_TASKS") {
     (async () => {
       try {
         const courses = await getAllCachedCourses();
-        const nameById = await resolveCourseNames(courses.map((c) => c.courseId));
+        const nameById = await resolveActiveCourseNames();
 
         const tasks = [];
         for (const course of courses) {
-          const courseName = course.courseName || nameById[course.courseId] || course.courseId;
+          const courseName = nameById[course.courseId];
+          if (!courseName) continue; // archived / no longer active — skip entirely
+          if (isExcludedCourseName(courseName)) continue;
+
           (course.courseWork || []).forEach((cw) => {
             if (!cw.dueDate) return;
             const isDone = cw.submissionState === "TURNED_IN" || cw.submissionState === "RETURNED";
@@ -155,18 +163,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Timetable mode: deadline-driven schedule across ALL synced courses'
+  // pending assignments, weighted by priority subject + ranked work-type preferences.
   if (msg.type === "GENERATE_STUDY_PLAN") {
     (async () => {
       try {
         const courses = await getAllCachedCourses();
-        const nameById = await resolveCourseNames(courses.map((c) => c.courseId));
+        const nameById = await resolveActiveCourseNames();
 
         const startDate = new Date(msg.startDate);
         const endDate = new Date(msg.endDate);
 
         const candidateTasks = [];
         for (const course of courses) {
-          const courseName = course.courseName || nameById[course.courseId] || course.courseId;
+          const courseName = nameById[course.courseId];
+          if (!courseName) continue; // archived — skip entirely
+          if (isExcludedCourseName(courseName)) continue;
+
           (course.courseWork || []).forEach((cw) => {
             if (!cw.dueDate) return;
             const isDone = cw.submissionState === "TURNED_IN" || cw.submissionState === "RETURNED";
@@ -199,6 +212,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               dueDate: t.dueDate,
               estimatedMinutes: est.estimatedMinutes,
               difficultyScore: est.difficultyScore,
+              typeLabel: detectTaskType(t.item, t.topicName),
             });
           } catch (err) {
             console.warn("Skipping a task, difficulty estimation failed:", err.message);
@@ -210,7 +224,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           endDate,
           hoursPerDay: msg.hoursPerDay,
           priorityCourseName: msg.priorityCourseName,
-          priorityTaskTitle: msg.priorityTaskTitle,
+          preferenceTypes: msg.preferenceTypes || [],
         });
 
         sendResponse({ ok: true, taskCount: enriched.length, scheduleResult });
@@ -218,6 +232,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: err.message });
       }
     })();
+    return true;
+  }
+
+  // Study Plan mode: subject/topic study, no deadlines involved.
+  if (msg.type === "GENERATE_SUBJECT_STUDY_PLAN") {
+    try {
+      const startDate = new Date(msg.startDate);
+      const endDate = new Date(msg.endDate);
+      const scheduleResult = buildSubjectStudySchedule(msg.subjects, {
+        startDate,
+        endDate,
+        hoursPerDay: msg.hoursPerDay,
+      });
+      sendResponse({ ok: true, scheduleResult });
+    } catch (err) {
+      sendResponse({ ok: false, error: err.message });
+    }
     return true;
   }
 });
