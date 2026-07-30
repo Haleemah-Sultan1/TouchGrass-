@@ -1,243 +1,824 @@
-// classroomapi.js
-// Shared data layer: auth, all Google Classroom API calls, topic grouping,
-// submission status, and caching. Every feature module reads from the
-// cache this file writes — never call fetch() against the Classroom API
-// directly from feature code.
+console.log("TouchGrass GCR loaded");
 
-const CACHE_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
+let currentClassId = null;
+let currentPath = location.pathname;
+let scannedPosts = [];
+let feedObserver = null;
+let debounceTimer = null;
+let currentMatchIndex = -1;
 
-// ---------- Auth ----------
-export function getAuthToken(interactive = true) {
-  return new Promise((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive }, (token) => {
-      if (chrome.runtime.lastError || !token) {
-        reject(chrome.runtime.lastError || new Error("No token returned"));
-        return;
-      }
-      resolve(token);
-    });
+window.__tgTeachers = window.__tgTeachers || new Map();
+window.__tgStudents = window.__tgStudents || new Map();
+
+function cleanupPreviousState() {
+  document.querySelectorAll('.tg-pin-btn').forEach(el => el.remove());
+  document.querySelectorAll('.tg-pinned-badge').forEach(el => el.remove());
+  document.querySelectorAll('.tg-card-pinned').forEach(el => {
+    el.classList.remove('tg-card-pinned');
+    el.style.outline = '';
+    el.style.boxShadow = '';
+    el.style.backgroundColor = '';
   });
+  const bar = document.getElementById('tg-pin-bar');
+  if (bar) bar.classList.add('tg-bar-hidden');
+  scannedPosts = [];
 }
 
-export function clearCachedToken(token) {
-  return new Promise((resolve) => {
-    chrome.identity.removeCachedAuthToken({ token }, resolve);
-  });
-}
+// ==================== PIN STYLES ====================
 
-// ---------- Low-level fetch helper with automatic 401 retry ----------
-async function apiFetch(url) {
-  let token = await getAuthToken(true);
-  let res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-
-  if (res.status === 401) {
-    await clearCachedToken(token);
-    token = await getAuthToken(true);
-    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  }
-
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`Classroom API error ${res.status}: ${errBody}`);
-  }
-
-  return res.json();
-}
-
-// Google's API paginates results (nextPageToken). This walks all pages
-// and deduplicates by item id, so callers always get the complete,
-// non-duplicated list in one call.
-async function apiFetchAllPages(baseUrl, listKey) {
-  const seenIds = new Set();
-  const items = [];
-  let pageToken = null;
-  let pageCount = 0;
-
-  do {
-    const url = pageToken ? `${baseUrl}&pageToken=${pageToken}` : baseUrl;
-    const data = await apiFetch(url);
-    const pageItems = data[listKey] || [];
-    pageCount++;
-
-    for (const item of pageItems) {
-      if (item.id && seenIds.has(item.id)) {
-        console.warn(`⚠️ Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
-        continue;
-      }
-      if (item.id) seenIds.add(item.id);
-      items.push(item);
+function injectPinStyles() {
+  if (document.getElementById('tg-pin-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-pin-styles';
+  style.textContent = `
+    .tg-pin-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, transform 0.15s;
+      padding: 4px;
+      border-radius: 6px;
+      z-index: 9999;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .tg-pin-btn:hover {
+      transform: scale(1.15);
+      background: rgba(127, 119, 221, 0.12);
+    }
+    .tg-pin-btn.tg-pinned-active {
+      opacity: 1 !important;
+    }
+    [data-tg-hoverable]:hover .tg-pin-btn {
+      opacity: 1;
+    }
+    .tg-card-pinned {
+      outline: 2px solid #7F77DD !important;
+      box-shadow: 0 0 0 4px rgba(127, 119, 221, 0.13) !important;
+      background-color: rgba(127, 119, 221, 0.05) !important;
+    }
+    .tg-pinned-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #534AB7;
+      background: rgba(127, 119, 221, 0.13);
+      border-radius: 20px;
+      padding: 2px 8px;
+      margin-bottom: 6px;
+      letter-spacing: 0.02em;
     }
 
-    pageToken = data.nextPageToken || null;
-  } while (pageToken);
-
-  console.log(`📄 ${listKey}: fetched ${pageCount} page(s), ${items.length} unique item(s)`);
-  return items;
-}
-
-// ---------- Individual endpoint fetchers ----------
-export async function fetchCourses() {
-  return apiFetchAllPages(
-    "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE",
-    "courses"
-  );
-}
-
-// Used only for name-resolution fallback — includes archived courses too,
-// since a course can still have synced data/cached tasks even if it's
-// since been archived on Classroom's side.
-export async function fetchAllCoursesAnyState() {
-  return apiFetchAllPages(
-    "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE&courseStates=ARCHIVED",
-    "courses"
-  );
-}
-
-export async function fetchTopics(courseId) {
-  return apiFetchAllPages(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/topics?`,
-    "topic"
-  );
-}
-
-export async function fetchCourseWork(courseId) {
-  return apiFetchAllPages(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork?`,
-    "courseWork"
-  );
-}
-
-export async function fetchCourseWorkMaterials(courseId) {
-  return apiFetchAllPages(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWorkMaterials?`,
-    "courseWorkMaterial"
-  );
-}
-
-export async function fetchRoster(courseId) {
-  const [teachers, students] = await Promise.all([
-    apiFetchAllPages(`https://classroom.googleapis.com/v1/courses/${courseId}/teachers?`, "teachers"),
-    apiFetchAllPages(`https://classroom.googleapis.com/v1/courses/${courseId}/students?`, "students"),
-  ]);
-  return { teachers, students };
-}
-
-export async function fetchSubmissions(courseId, courseWorkId) {
-  return apiFetchAllPages(
-    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}/studentSubmissions?`,
-    "studentSubmissions"
-  );
-}
-
-// ---------- Content grouping ----------
-// Groups courseWork + courseWorkMaterials by their REAL Classroom topic —
-// the exact same grouping Classroom shows on the Classwork page.
-export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
-  const topicNameById = {};
-  (topics || []).forEach((t) => { topicNameById[t.topicId] = t.name || "(unnamed topic)"; });
-
-  const groups = {};
-  const NO_TOPIC = "No topic";
-
-  function addItem(item) {
-    const topicName = item.topicId ? (topicNameById[item.topicId] || "(unknown topic)") : NO_TOPIC;
-    if (!groups[topicName]) groups[topicName] = [];
-    groups[topicName].push(item);
-  }
-
-  (courseWork || []).forEach(addItem);
-  (courseWorkMaterials || []).forEach(addItem);
-
-  return groups;
-}
-
-// ---------- Debug: print exact titles per topic group ----------
-export function debugPrintGroups(groups) {
-  console.log("──── TOPIC GROUPING DEBUG ────");
-  Object.entries(groups).forEach(([topicName, items]) => {
-    console.log(`\n${topicName} (${items.length}):`);
-    items.forEach((item, i) => {
-      console.log(`  ${i + 1}. "${item.title}" [workType: ${item.workType || "MATERIAL"}]`);
-    });
-  });
-  console.log("───────────────────────────────");
-}
-
-// ---------- Cache read/write ----------
-function getCacheKey(courseId) {
-  return `classroomData_${courseId}`;
-}
-
-export function getCachedCourseData(courseId) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(getCacheKey(courseId), (data) => {
-      const entry = data[getCacheKey(courseId)];
-      if (!entry) { resolve(null); return; }
-      const age = Date.now() - entry.fetchedAt;
-      resolve(age < CACHE_MAX_AGE_MS ? entry : null);
-    });
-  });
-}
-
-function setCachedCourseData(courseId, payload) {
-  return new Promise((resolve) => {
-    const entry = { ...payload, fetchedAt: Date.now() };
-    chrome.storage.local.set({ [getCacheKey(courseId)]: entry }, () => resolve(entry));
-  });
-}
-
-// Returns all cached course data across every course the student has synced —
-// needed so the study planner can build a schedule spanning multiple classes.
-export function getAllCachedCourses() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(null, (allData) => {
-      const courses = Object.entries(allData)
-        .filter(([key]) => key.startsWith("classroomData_"))
-        .map(([, value]) => value);
-      resolve(courses);
-    });
-  });
-}
-
-// ---------- Main entry point: sync everything for one course ----------
-// courseName is passed in from the caller (which already has it from the
-// course dropdown) since the Classroom API's per-course endpoints don't
-// return the course's own display name.
-export async function syncCourseData(courseId, courseName, { force = false } = {}) {
-  if (!force) {
-    const cached = await getCachedCourseData(courseId);
-    if (cached) {
-      console.log(`📦 Using cached data for course ${courseId} (age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s)`);
-      return cached;
+    /* ---- Floating pin bar ---- */
+    #tg-pin-bar {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #1a1a1a;
+      border-radius: 0 0 14px 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+      font-family: sans-serif;
+      max-width: 80vw;
+      overflow: hidden;
+      transition: opacity 0.2s;
     }
+    #tg-pin-bar.tg-bar-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #tg-pin-bar-label {
+      font-size: 11px;
+      color: #7F77DD;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      margin-right: 4px;
+    }
+    .tg-bar-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 999px;
+      padding: 3px 10px 3px 7px;
+      font-size: 12px;
+      color: #ddd;
+      cursor: pointer;
+      white-space: nowrap;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip:hover {
+      background: #3a3060;
+      border-color: #7F77DD;
+      color: #fff;
+    }
+    .tg-bar-chip-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip-unpin {
+      font-size: 10px;
+      color: #555;
+      margin-left: 2px;
+      cursor: pointer;
+      padding: 0 2px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .tg-bar-chip-unpin:hover {
+      color: #f87171;
+      background: rgba(248,113,113,0.15);
+    }
+    #tg-pin-bar-empty {
+      font-size: 12px;
+      color: #444;
+      font-style: italic;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ==================== DARK MODE ====================
+
+function injectDarkModeStyles() {
+  if (document.getElementById('tg-dark-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles';
+  style.textContent = `
+    body.tg-dark,
+    body.tg-dark [data-is-archived="false"],
+    body.tg-dark main,
+    body.tg-dark header,
+    body.tg-dark nav,
+    body.tg-dark aside,
+    body.tg-dark footer,
+    body.tg-dark div,
+    body.tg-dark section,
+    body.tg-dark article,
+    body.tg-dark li,
+    body.tg-dark ul,
+    body.tg-dark form {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+    body.tg-dark * {
+      color: #e8e8e8 !important;
+      box-shadow: none !important;
+    }
+    body.tg-dark a {
+      color: #8ab4f8 !important;
+    }
+    body.tg-dark input,
+    body.tg-dark textarea,
+    body.tg-dark select {
+      background-color: #1a1a1a !important;
+      border-color: #333 !important;
+      color: #e8e8e8 !important;
+    }
+    body.tg-dark img {
+      opacity: 0.88;
+    }
+    body.tg-dark [data-material-css-shimmer],
+    body.tg-dark .shimmer {
+      background: #1a1a1a !important;
+    }
+    /* Keep our own TG elements unaffected */
+    body.tg-dark #tg-pin-bar {
+      background: #1a1a1a !important;
+      border-bottom: 1px solid #2a2a2a !important;
+    }
+    body.tg-dark #tg-match-nav {
+      background: #1a1a1a !important;
+    }
+    body.tg-dark .tg-pinned-badge {
+      background: rgba(127,119,221,0.2) !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
+// so GCR's Material Web Components (which render inside shadow DOM) never
+// pick up the dark theme unless we push the styles directly into each root. ----
+
+function injectStyleIntoRoot(root) {
+  if (root.querySelector('#tg-dark-styles-shadow')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles-shadow';
+  style.textContent = `
+    * { color: #e8e8e8 !important; box-shadow: none !important; }
+    div, section, article, li, ul, form, header, nav, aside, footer, main {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+  `;
+  root.appendChild(style);
+}
+
+function patchShadowRoots(node = document.body) {
+  const all = node.querySelectorAll('*');
+  all.forEach(el => {
+    if (el.shadowRoot) {
+      injectStyleIntoRoot(el.shadowRoot);
+      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
+    }
+  });
+}
+
+function applyDarkMode(enabled) {
+  if (enabled) {
+    document.body.classList.add('tg-dark');
+    patchShadowRoots();
+  } else {
+    document.body.classList.remove('tg-dark');
   }
+}
 
-  console.log(`🔄 Fetching fresh data for course ${courseId}...`);
-  const [topics, courseWork, courseWorkMaterials, roster] = await Promise.all([
-    fetchTopics(courseId),
-    fetchCourseWork(courseId),
-    fetchCourseWorkMaterials(courseId),
-    fetchRoster(courseId),
-  ]);
+function loadDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    injectDarkModeStyles();
+    applyDarkMode(!!data.tgDarkMode);
+  });
+}
 
-  // Fetch submission status per assignment so we know what's already done.
-  const submissionResults = await Promise.all(
-    courseWork.map((cw) => fetchSubmissions(courseId, cw.id).catch(() => []))
-  );
-  courseWork.forEach((cw, i) => {
-    const sub = submissionResults[i]?.[0]; // "me" scope returns just this student's own submission
-    cw.submissionState = sub?.state || "UNKNOWN"; // TURNED_IN, RETURNED, CREATED, or UNKNOWN
+function toggleDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    const next = !data.tgDarkMode;
+    chrome.storage.local.set({ tgDarkMode: next }, () => {
+      applyDarkMode(next);
+    });
+  });
+}
+
+// ==================== PIN STORAGE ====================
+
+function getPinnedPosts(classId, callback) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const all = data.pinnedPosts || {};
+    callback(all[classId] || []);
+  });
+}
+
+function savePinnedPosts(classId, pins) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const all = data.pinnedPosts || {};
+    all[classId] = pins;
+    chrome.storage.local.set({ pinnedPosts: all }, () => {
+      refreshPinBar(classId);
+    });
+  });
+}
+
+function makePinId(el) {
+  const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
+  if (streamId) return streamId;
+  const text = el.innerText?.trim().slice(0, 80) || '';
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'tg_' + Math.abs(hash).toString(36);
+}
+
+// ==================== FLOATING PIN BAR ====================
+
+function getOrCreatePinBar() {
+  let bar = document.getElementById('tg-pin-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'tg-pin-bar';
+    bar.innerHTML = `
+      <span id="tg-pin-bar-label">📍 Pinned</span>
+      <span id="tg-pin-bar-chips"></span>
+    `;
+    document.body.appendChild(bar);
+  }
+  return bar;
+}
+
+function refreshPinBar(classId) {
+  if (!classId) return;
+  getPinnedPosts(classId, (pins) => {
+    const bar = getOrCreatePinBar();
+    const chipsEl = document.getElementById('tg-pin-bar-chips');
+    if (!chipsEl) return;
+    chipsEl.innerHTML = '';
+
+    if (!pins.length) {
+      bar.classList.add('tg-bar-hidden');
+      return;
+    }
+
+    bar.classList.remove('tg-bar-hidden');
+
+    pins.forEach(pin => {
+      const chip = document.createElement('span');
+      chip.className = 'tg-bar-chip';
+      chip.title = pin.snippet;
+
+      const shortText = pin.snippet.slice(0, 40) + (pin.snippet.length > 40 ? '…' : '');
+
+      chip.innerHTML = `
+        <span class="tg-bar-chip-icon">📌</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(shortText)}</span>
+        <span class="tg-bar-chip-unpin" data-pinid="${pin.id}" title="Unpin">✕</span>
+      `;
+
+      // Click chip body → scroll to post
+      chip.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tg-bar-chip-unpin')) return;
+        scanStreamPosts();
+        const match = scannedPosts.find(({ el }) => makePinId(el) === pin.id);
+        if (match) {
+          scrollToMatch(match.el);
+          match.el.style.transition = 'box-shadow 0.3s';
+          match.el.style.boxShadow = '0 0 0 5px rgba(127,119,221,0.55)';
+          setTimeout(() => { match.el.style.boxShadow = ''; }, 1600);
+        }
+      });
+
+      // Click ✕ → unpin directly from bar
+      chip.querySelector('.tg-bar-chip-unpin').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pinId = e.target.getAttribute('data-pinid');
+        getPinnedPosts(classId, (pins) => {
+          const updated = pins.filter(p => p.id !== pinId);
+          savePinnedPosts(classId, updated);
+          // Also remove visual from the card if visible
+          scanStreamPosts();
+          const match = scannedPosts.find(({ el }) => makePinId(el) === pinId);
+          if (match) {
+            match.el.classList.remove('tg-card-pinned');
+            removePinnedBadge(match.el);
+            const btn = match.el.querySelector('.tg-pin-btn');
+            if (btn) {
+              btn.textContent = '📌';
+              btn.title = 'Pin this post';
+              btn.classList.remove('tg-pinned-active');
+            }
+          }
+        });
+      });
+
+      chipsEl.appendChild(chip);
+    });
+  });
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ==================== PIN BUTTON INJECTION ====================
+
+function togglePin(classId, pinId, snippet, el, btn) {
+  getPinnedPosts(classId, (pins) => {
+    const exists = pins.find(p => p.id === pinId);
+    if (exists) {
+      const updated = pins.filter(p => p.id !== pinId);
+      savePinnedPosts(classId, updated);
+      btn.textContent = '📌';
+      btn.title = 'Pin this post';
+      btn.classList.remove('tg-pinned-active');
+      el.classList.remove('tg-card-pinned');
+      removePinnedBadge(el);
+    } else {
+      const newPin = { id: pinId, snippet: snippet.slice(0, 120), pinnedAt: Date.now() };
+      savePinnedPosts(classId, [...pins, newPin]);
+      btn.textContent = '📍';
+      btn.title = 'Unpin this post';
+      btn.classList.add('tg-pinned-active');
+      el.classList.add('tg-card-pinned');
+      addPinnedBadge(el);
+    }
+  });
+}
+
+function addPinnedBadge(el) {
+  if (el.querySelector('.tg-pinned-badge')) return;
+  const badge = document.createElement('div');
+  badge.className = 'tg-pinned-badge';
+  badge.innerHTML = '📍 pinned by you';
+  el.insertBefore(badge, el.firstChild);
+}
+
+function removePinnedBadge(el) {
+  el.querySelector('.tg-pinned-badge')?.remove();
+}
+
+function injectPinButton(el, classId) {
+  if (el.querySelector('.tg-pin-btn')) return;
+  el.setAttribute('data-tg-hoverable', '1');
+  if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+
+  const pinId = makePinId(el);
+  const snippet = el.innerText?.trim() || '';
+
+  const btn = document.createElement('button');
+  btn.className = 'tg-pin-btn';
+  btn.textContent = '📌';
+  btn.title = 'Pin this post';
+  btn.setAttribute('aria-label', 'Pin this post');
+
+  getPinnedPosts(classId, (pins) => {
+    if (pins.find(p => p.id === pinId)) {
+      btn.textContent = '📍';
+      btn.title = 'Unpin this post';
+      btn.classList.add('tg-pinned-active');
+      el.classList.add('tg-card-pinned');
+      addPinnedBadge(el);
+    }
   });
 
-  const groups = groupContentByTopic(courseWork, courseWorkMaterials, topics);
-  debugPrintGroups(groups);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    togglePin(classId, pinId, snippet, el, btn);
+  });
 
-  const payload = { courseId, courseName, topics, courseWork, courseWorkMaterials, roster, groups };
-  const saved = await setCachedCourseData(courseId, payload);
-
-  const totalItems = courseWork.length + courseWorkMaterials.length;
-  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups`);
-  Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
-
-  return saved;
+  el.appendChild(btn);
 }
+
+function injectPinButtonsOnAllCards(classId) {
+  scanStreamPosts();
+  scannedPosts.forEach(({ el }) => injectPinButton(el, classId));
+}
+
+// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
+
+function getClassId() {
+  const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
+  return match ? match[2] : null;
+}
+
+function isPeoplePage() {
+  return /\/r\/[^\/]+\/sort-last-name/.test(location.pathname);
+}
+
+function collectPeopleRows() {
+  document.querySelectorAll('li.ycbm1d').forEach(row => {
+    const nameEl = row.querySelector('.sCv5Q');
+    if (!nameEl) return;
+    const name = nameEl.innerText.trim();
+    const label = row.querySelector('button[aria-label*="Options for"]')?.getAttribute('aria-label') || '';
+    if (label.includes('teacher')) window.__tgTeachers.set(name, true);
+    else if (label.includes('student')) window.__tgStudents.set(name, true);
+  });
+}
+
+function saveAccumulatedPeople(classId) {
+  const teachers = Array.from(window.__tgTeachers.keys());
+  const students = Array.from(window.__tgStudents.keys());
+  chrome.storage.local.get("classPeople", (data) => {
+    const classPeople = data.classPeople || {};
+    classPeople[classId] = { teachers, students, scrapedAt: Date.now() };
+    chrome.storage.local.set({ classPeople });
+  });
+}
+
+function startPeopleAccumulator(classId) {
+  collectPeopleRows();
+  saveAccumulatedPeople(classId);
+  const onScroll = () => { collectPeopleRows(); saveAccumulatedPeople(classId); };
+  window.addEventListener('scroll', onScroll, true);
+  document.addEventListener('scroll', onScroll, true);
+}
+
+function findStreamCards() {
+  const markers = document.querySelectorAll('[data-stream-item-id]');
+  let container = null;
+  if (markers.length > 0) container = markers[0].parentElement;
+  if (!container) container = document.querySelector('main') || document.body;
+
+  const cards = Array.from(container.children).filter(el => {
+    return el.offsetHeight > 20 && el.offsetParent !== null;
+  });
+
+  if (cards.length < 2) {
+    const main = document.querySelector('main') || document.body;
+    return Array.from(main.querySelectorAll(':scope > *, :scope > * > *'))
+      .filter(el => el.offsetHeight > 20 && el.offsetHeight < 2000 && el.offsetParent !== null);
+  }
+  return cards;
+}
+
+function scanStreamPosts() {
+  const cards = findStreamCards();
+  const newPosts = [];
+  cards.forEach(el => {
+    const text = el.innerText?.trim();
+    if (!text) return;
+    const headText = text.slice(0, 120);
+    newPosts.push({ el, headText });
+  });
+  if (newPosts.length === 0 && scannedPosts.length > 0) return scannedPosts;
+  scannedPosts = newPosts;
+  console.log(`Stream cards found: ${scannedPosts.length}`);
+  return scannedPosts;
+}
+
+// ==================== AUTO-LOAD (NEW) ====================
+// GCR lazy-loads the stream as you scroll, so scanStreamPosts() only ever
+// sees whatever's currently rendered. This forces the feed to fully load
+// (by scrolling to the bottom repeatedly) BEFORE we scan/filter, so
+// filtering works across the whole stream instead of just the first batch.
+
+function autoLoadAllPosts(onDone, opts = {}) {
+  const maxAttempts = opts.maxAttempts ?? 25;
+  const stableRoundsNeeded = opts.stableRoundsNeeded ?? 2;
+  const waitMs = opts.waitMs ?? 650;
+
+  const startScrollY = window.scrollY;
+  let attempts = 0;
+  let lastCount = -1;
+  let stableRounds = 0;
+
+  function step() {
+    attempts++;
+    window.scrollTo(0, document.body.scrollHeight);
+
+    setTimeout(() => {
+      scanStreamPosts();
+      const count = scannedPosts.length;
+
+      if (count === lastCount) {
+        stableRounds++;
+      } else {
+        stableRounds = 0;
+      }
+      lastCount = count;
+
+      const done = stableRounds >= stableRoundsNeeded || attempts >= maxAttempts;
+
+      if (done) {
+        // put the user back roughly where they were before we hijacked scroll
+        window.scrollTo(0, startScrollY);
+        onDone();
+      } else {
+        step();
+      }
+    }, waitMs);
+  }
+
+  step();
+}
+
+function clearHighlights() {
+  document.querySelectorAll('.tg-highlight').forEach(el => {
+    el.classList.remove('tg-highlight');
+    el.style.outline = '';
+    el.style.boxShadow = '';
+    el.style.backgroundColor = '';
+  });
+  removeMatchNav();
+}
+
+function scrollToMatch(el) {
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeMatchNav() {
+  document.getElementById('tg-match-nav')?.remove();
+}
+
+function createMatchNav(matches) {
+  removeMatchNav();
+  const nav = document.createElement('div');
+  nav.id = 'tg-match-nav';
+  nav.style.cssText = `
+    position: fixed; bottom: 24px; right: 24px; z-index: 999999;
+    background: #1a1a1a; color: white; padding: 10px 14px;
+    border-radius: 999px; display: flex; align-items: center; gap: 10px;
+    font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  nav.innerHTML = `
+    <button id="tg-prev" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▲</button>
+    <span id="tg-count">1 / ${matches.length}</span>
+    <button id="tg-next" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▼</button>
+  `;
+  document.body.appendChild(nav);
+
+  nav.querySelector('#tg-prev').onclick = () => {
+    currentMatchIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+  nav.querySelector('#tg-next').onclick = () => {
+    currentMatchIndex = (currentMatchIndex + 1) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+}
+
+function applyFilter(teacher) {
+  scanStreamPosts();
+  clearHighlights();
+  if (!teacher || teacher === 'all') return;
+
+  const matches = [];
+  scannedPosts.forEach(({ el, headText }) => {
+    if (headText.includes(teacher)) {
+      el.classList.add('tg-highlight');
+      el.style.outline = '3px solid #d500f9';
+      el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+      el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+      matches.push(el);
+    }
+  });
+
+  console.log(`Highlighted ${matches.length} cards for "${teacher}"`);
+
+  if (matches.length > 0) {
+    currentMatchIndex = 0;
+    scrollToMatch(matches[0]);
+    createMatchNav(matches);
+  }
+}
+
+function saveActiveFilter(classId, teacher) {
+  chrome.storage.local.get("activeFilters", (data) => {
+    const activeFilters = data.activeFilters || {};
+    activeFilters[classId] = teacher;
+    chrome.storage.local.set({ activeFilters });
+  });
+}
+
+function loadAndApplySavedFilter(classId) {
+  chrome.storage.local.get("activeFilters", (data) => {
+    const teacher = (data.activeFilters || {})[classId];
+    if (teacher && teacher !== 'all') applyFilter(teacher);
+  });
+}
+
+function watchFeed(classId) {
+  if (feedObserver) feedObserver.disconnect();
+  const mainArea = document.querySelector('main') || document.body;
+  feedObserver = new MutationObserver(() => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      injectPinButtonsOnAllCards(classId);
+      refreshPinBar(classId);
+      if (document.body.classList.contains('tg-dark')) {
+        patchShadowRoots();
+      }
+      chrome.storage.local.get("activeFilters", (data) => {
+        const teacher = (data.activeFilters || {})[classId];
+        if (teacher && teacher !== 'all') {
+          // Re-scan and re-apply without scrolling to top again
+          const cards = findStreamCards();
+          cards.forEach(el => {
+            const text = el.innerText?.trim();
+            if (!text) return;
+            const headText = text.slice(0, 120);
+            if (headText.includes(teacher) && !el.classList.contains('tg-highlight')) {
+              el.classList.add('tg-highlight');
+              el.style.outline = '3px solid #d500f9';
+              el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+              el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+            }
+          });
+          // Rebuild match nav with updated full list
+          const matches = Array.from(document.querySelectorAll('.tg-highlight'));
+          if (matches.length > 0) {
+            removeMatchNav();
+            createMatchNav(matches);
+            // Don't scroll — keep user where they are
+          }
+        }
+      });
+    }, 600);
+  });
+  feedObserver.observe(mainArea, { childList: true, subtree: true });
+}
+
+// ==================== INIT ====================
+
+function handlePageContext() {
+   cleanupPreviousState();
+  const classId = getClassId();
+  if (!classId) return;
+  currentClassId = classId;
+
+  if (isPeoplePage()) {
+    window.__tgTeachers = new Map();
+    window.__tgStudents = new Map();
+    setTimeout(() => startPeopleAccumulator(classId), 800);
+  }  else {
+    injectPinStyles();
+    loadDarkMode();
+    let attempts = 0;
+    const tryInit = () => {
+      attempts++;
+      const cards = findStreamCards();
+      if (cards.length > 0 || attempts > 10) {
+        scanStreamPosts();
+        injectPinButtonsOnAllCards(classId);
+        refreshPinBar(classId);
+        loadAndApplySavedFilter(classId);
+        watchFeed(classId);
+      } else {
+        setTimeout(tryInit, 800);
+      }
+    };
+    setTimeout(tryInit, 800);
+  }
+}
+
+handlePageContext();
+
+setInterval(() => {
+  if (location.pathname !== currentPath) {
+    currentPath = location.pathname;
+    handlePageContext();
+  }
+}, 800);
+
+// ==================== MESSAGE LISTENER ====================
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'SET_FILTER') {
+    // NEW: force-load the whole stream first, then filter across everything
+    autoLoadAllPosts(() => {
+      applyFilter(msg.teacher);
+      if (currentClassId) saveActiveFilter(currentClassId, msg.teacher);
+      sendResponse({ ok: true, postsFound: scannedPosts.length });
+    });
+    return true;
+  }
+  if (msg.type === 'GET_DEBUG') {
+    sendResponse({ classId: currentClassId, postsFound: scannedPosts.length });
+    return true;
+  }
+  if (msg.type === 'GET_PINS') {
+    getPinnedPosts(msg.classId || currentClassId, (pins) => {
+      sendResponse({ pins });
+    });
+    return true;
+  }
+  if (msg.type === 'TOGGLE_DARK_MODE') {
+    toggleDarkMode();
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === 'GET_DARK_MODE') {
+    chrome.storage.local.get('tgDarkMode', (data) => {
+      sendResponse({ enabled: !!data.tgDarkMode });
+    });
+    return true;
+  }
+  if (msg.type === 'SCROLL_TO_PIN') {
+    scanStreamPosts();
+    const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
+    if (match) {
+      scrollToMatch(match.el);
+      match.el.style.transition = 'box-shadow 0.3s';
+      match.el.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
+      setTimeout(() => { match.el.style.boxShadow = ''; }, 1500);
+    }
+    sendResponse({ found: !!match });
+    return true;
+  }
+  if (msg.type === 'UNPIN_FROM_POPUP') {
+    getPinnedPosts(currentClassId, (pins) => {
+      const updated = pins.filter(p => p.id !== msg.pinId);
+      savePinnedPosts(currentClassId, updated);
+      scanStreamPosts();
+      const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
+      if (match) {
+        match.el.classList.remove('tg-card-pinned');
+        removePinnedBadge(match.el);
+        const btn = match.el.querySelector('.tg-pin-btn');
+        if (btn) {
+          btn.textContent = '📌';
+          btn.title = 'Pin this post';
+          btn.classList.remove('tg-pinned-active');
+        }
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+  return true;
+});
