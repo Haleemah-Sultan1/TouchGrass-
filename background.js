@@ -2,6 +2,7 @@ import { fetchCourses, syncCourseData, getCachedCourseData, getAllCachedCourses 
 import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
+import { summarizeComments } from "./commentSummary.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
@@ -46,7 +47,7 @@ function detectTaskType(item, topicName) {
   return "Assignments";
 }
 
-// ---------- Messages from popup / planner ----------
+// ---------- Messages from popup / planner / content script ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "TEST_AUTH") {
     fetchCourses()
@@ -249,6 +250,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } catch (err) {
       sendResponse({ ok: false, error: err.message });
     }
+    return true;
+  }
+
+  // Milestone 7/8: comment summarization, triggered from content.js on a
+  // specific assignment/coursework detail page.
+  if (msg.type === "SUMMARIZE_COMMENTS") {
+    summarizeComments(msg.comments)
+      .then((queries) => sendResponse({ ok: true, queries }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 });
