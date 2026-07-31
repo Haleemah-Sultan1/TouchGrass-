@@ -667,7 +667,7 @@ function watchFeed(classId) {
   feedObserver.observe(mainArea, { childList: true, subtree: true });
 }
 
-// ==================== MILESTONE 7: COMMENT SUMMARIZATION (NEW) ====================
+// ==================== MILESTONE 7: COMMENT SUMMARIZATION ====================
 // Everything in this section is new and additive. It only activates on a
 // specific coursework detail page (/c/<classId>/a/<courseworkId>/details)
 // and does not touch any of the stream/pin/dark-mode/people logic above.
@@ -681,8 +681,9 @@ function getCourseworkIdFromUrl() {
   return match ? match[1] : null;
 }
 
-// Finds the "N class comments" section and returns its container, without
-// searching the whole document (keeps scraping scoped and safer).
+// Kept for potential future use, but scrapeClassComments() below no longer
+// relies on this — DOM-structure guessing proved unreliable, since the
+// comments list isn't a close ancestor of the "N class comments" heading.
 function findClassCommentsContainer() {
   const candidates = Array.from(document.querySelectorAll('div, span, h2, h3'));
   const heading = candidates.find(el =>
@@ -691,8 +692,6 @@ function findClassCommentsContainer() {
   );
   if (!heading) return null;
 
-  // Climb up a few levels to find an ancestor that actually wraps the
-  // list of comments below the heading (not just the heading's own row).
   let node = heading;
   for (let i = 0; i < 5; i++) {
     if (!node.parentElement) break;
@@ -704,35 +703,42 @@ function findClassCommentsContainer() {
   return heading.parentElement || heading;
 }
 
-// Scrapes {author, dateStr, text} for every class comment inside the
-// comments container by parsing rendered TEXT CONTENT rather than CSS
-// class names. Google's auto-generated class names (like the ones seen
-// in DevTools) can change between sessions/deployments, so we deliberately
-// avoid depending on them here — a "Name • Date" line followed by comment
-// text is a stable visual/textual pattern even when markup churns.
+// Scrapes {author, dateStr, text} for every class comment by working off
+// the FULL PAGE's flattened text (main.innerText) rather than trying to
+// locate a specific DOM container. The "N class comments" heading marks
+// where to start reading from — everything before it (assignment
+// description, "Your work" panel, etc.) is discarded, and everything after
+// is parsed for "Name • Date" comment headers, stopping at the
+// "Add class comment..." input. This is more robust than DOM-structure
+// guessing since innerText reflects everything rendered regardless of how
+// or where it's nested in the tree.
 function scrapeClassComments() {
-  const container = findClassCommentsContainer();
-  if (!container) {
-    console.warn('TouchGrass: could not locate class comments section on this page.');
+  const fullText = (document.querySelector('main') || document.body).innerText || '';
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  const startIndex = lines.findIndex(l => /^\d+\s+class comments?$/i.test(l));
+  if (startIndex === -1) {
+    console.warn('TouchGrass: could not locate "N class comments" heading on this page.');
     return [];
   }
 
-  const fullText = container.innerText || '';
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const relevantLines = lines.slice(startIndex + 1);
 
-  // TEMP DEBUG: print the first 30 raw lines so we can see the real text
-  // structure and calibrate the parser against actual ground truth instead
-  // of guessing. Safe to remove once parsing is confirmed working.
-  console.log('TouchGrass DEBUG — raw comment-container lines:');
-  lines.slice(0, 30).forEach((l, i) => console.log(`  [${i}] "${l}"`));
+  console.log('TouchGrass DEBUG — lines after "class comments" heading:');
+  relevantLines.slice(0, 30).forEach((l, i) => console.log(`  [${i}] "${l}"`));
 
   // "Name • Apr 20", "Name • May 2", "Name • Just now", "Name • Edited May 2"
   const headerRegex = /^(.{1,60}?)\s*•\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(,\s*\d{4})?|Just now|Yesterday|Edited\s+.+)$/i;
+  // Stop parsing once we hit the "Add class comment..." input placeholder,
+  // which marks the end of the comment list.
+  const stopRegex = /^add class comment/i;
 
   const rawEntries = [];
   let current = null;
 
-  lines.forEach(line => {
+  for (const line of relevantLines) {
+    if (stopRegex.test(line)) break;
+
     const match = line.match(headerRegex);
     if (match) {
       if (current) rawEntries.push(current);
@@ -740,7 +746,7 @@ function scrapeClassComments() {
     } else if (current) {
       current.textLines.push(line);
     }
-  });
+  }
   if (current) rawEntries.push(current);
 
   const seen = new Set();
