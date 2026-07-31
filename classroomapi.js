@@ -1,8 +1,8 @@
 // classroomapi.js
-// Shared data layer: auth, all Google Classroom API calls, topic grouping, and caching.
-// Every feature module (study plans, difficulty estimation, topic relevancy,
-// comments) should read from the cache this file writes — never call
-// fetch() against the Classroom API directly from feature code.
+// Shared data layer: auth, all Google Classroom API calls, topic grouping,
+// submission status, and caching. Every feature module reads from the
+// cache this file writes — never call fetch() against the Classroom API
+// directly from feature code.
 
 const CACHE_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -60,9 +60,6 @@ async function apiFetchAllPages(baseUrl, listKey) {
     pageCount++;
 
     for (const item of pageItems) {
-      // Guard against duplicates across pages (defensive — shouldn't happen,
-      // but silently doubling counts is exactly the kind of bug that's hard
-      // to spot without this).
       if (item.id && seenIds.has(item.id)) {
         console.warn(`⚠️ Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
         continue;
@@ -82,6 +79,16 @@ async function apiFetchAllPages(baseUrl, listKey) {
 export async function fetchCourses() {
   return apiFetchAllPages(
     "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE",
+    "courses"
+  );
+}
+
+// Used only for name-resolution fallback — includes archived courses too,
+// since a course can still have synced data/cached tasks even if it's
+// since been archived on Classroom's side.
+export async function fetchAllCoursesAnyState() {
+  return apiFetchAllPages(
+    "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE&courseStates=ARCHIVED",
     "courses"
   );
 }
@@ -107,6 +114,17 @@ export async function fetchCourseWorkMaterials(courseId) {
   );
 }
 
+// NEW: announcements are the actual "stream posts" the teacher-filter
+// feature cares about — fetching these directly means we get the true,
+// complete list (and each one's creatorUserId) with no dependency on
+// how much of the DOM Classroom has lazily rendered.
+export async function fetchAnnouncements(courseId) {
+  return apiFetchAllPages(
+    `https://classroom.googleapis.com/v1/courses/${courseId}/announcements?`,
+    "announcements"
+  );
+}
+
 export async function fetchRoster(courseId) {
   const [teachers, students] = await Promise.all([
     apiFetchAllPages(`https://classroom.googleapis.com/v1/courses/${courseId}/teachers?`, "teachers"),
@@ -115,17 +133,21 @@ export async function fetchRoster(courseId) {
   return { teachers, students };
 }
 
+export async function fetchSubmissions(courseId, courseWorkId) {
+  return apiFetchAllPages(
+    `https://classroom.googleapis.com/v1/courses/${courseId}/courseWork/${courseWorkId}/studentSubmissions?`,
+    "studentSubmissions"
+  );
+}
+
 // ---------- Content grouping ----------
 // Groups courseWork + courseWorkMaterials by their REAL Classroom topic —
-// the exact same grouping Classroom shows on the Classwork page (Project,
-// Solutions, Class Activities, Assignments, Quiz, Lectures, Books and
-// outline, etc). We don't guess categories; we mirror Classroom's own
-// structure, so the counts are guaranteed to match what's on the page.
+// the exact same grouping Classroom shows on the Classwork page.
 export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
   const topicNameById = {};
   (topics || []).forEach((t) => { topicNameById[t.topicId] = t.name || "(unnamed topic)"; });
 
-  const groups = {}; // topicName -> array of items
+  const groups = {};
   const NO_TOPIC = "No topic";
 
   function addItem(item) {
@@ -141,9 +163,6 @@ export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
 }
 
 // ---------- Debug: print exact titles per topic group ----------
-// Use this to compare against the real Classwork page item-by-item when
-// counts look wrong. Open the service worker console (chrome://extensions
-// → Inspect views: service worker) to see this output.
 export function debugPrintGroups(groups) {
   console.log("──── TOPIC GROUPING DEBUG ────");
   Object.entries(groups).forEach(([topicName, items]) => {
@@ -153,6 +172,20 @@ export function debugPrintGroups(groups) {
     });
   });
   console.log("───────────────────────────────");
+}
+
+// Maps each announcement's creatorUserId to a teacher display name using
+// the roster, so filtering by teacher NAME (what the popup dropdown shows)
+// works against the real API data instead of scraped DOM text.
+function attachTeacherNames(announcements, teachers) {
+  const nameById = {};
+  (teachers || []).forEach((t) => {
+    nameById[t.userId] = t.profile?.name?.fullName || "(unknown teacher)";
+  });
+  return (announcements || []).map((a) => ({
+    ...a,
+    creatorName: nameById[a.creatorUserId] || "(unknown teacher)",
+  }));
 }
 
 // ---------- Cache read/write ----------
@@ -178,8 +211,24 @@ function setCachedCourseData(courseId, payload) {
   });
 }
 
+// Returns all cached course data across every course the student has synced —
+// needed so the study planner can build a schedule spanning multiple classes.
+export function getAllCachedCourses() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(null, (allData) => {
+      const courses = Object.entries(allData)
+        .filter(([key]) => key.startsWith("classroomData_"))
+        .map(([, value]) => value);
+      resolve(courses);
+    });
+  });
+}
+
 // ---------- Main entry point: sync everything for one course ----------
-export async function syncCourseData(courseId, { force = false } = {}) {
+// courseName is passed in from the caller (which already has it from the
+// course dropdown) since the Classroom API's per-course endpoints don't
+// return the course's own display name.
+export async function syncCourseData(courseId, courseName, { force = false } = {}) {
   if (!force) {
     const cached = await getCachedCourseData(courseId);
     if (cached) {
@@ -189,24 +238,34 @@ export async function syncCourseData(courseId, { force = false } = {}) {
   }
 
   console.log(`🔄 Fetching fresh data for course ${courseId}...`);
-  const [topics, courseWork, courseWorkMaterials, roster] = await Promise.all([
+  const [topics, courseWork, courseWorkMaterials, roster, announcementsRaw] = await Promise.all([
     fetchTopics(courseId),
     fetchCourseWork(courseId),
     fetchCourseWorkMaterials(courseId),
     fetchRoster(courseId),
+    fetchAnnouncements(courseId),
   ]);
+
+  // Fetch submission status per assignment so we know what's already done.
+  const submissionResults = await Promise.all(
+    courseWork.map((cw) => fetchSubmissions(courseId, cw.id).catch(() => []))
+  );
+  courseWork.forEach((cw, i) => {
+    const sub = submissionResults[i]?.[0]; // "me" scope returns just this student's own submission
+    cw.submissionState = sub?.state || "UNKNOWN"; // TURNED_IN, RETURNED, CREATED, or UNKNOWN
+  });
+
+  const announcements = attachTeacherNames(announcementsRaw, roster.teachers);
 
   const groups = groupContentByTopic(courseWork, courseWorkMaterials, topics);
   debugPrintGroups(groups);
 
-  const payload = { courseId, topics, courseWork, courseWorkMaterials, roster, groups };
+  const payload = { courseId, courseName, topics, courseWork, courseWorkMaterials, roster, groups, announcements };
   const saved = await setCachedCourseData(courseId, payload);
 
   const totalItems = courseWork.length + courseWorkMaterials.length;
-  console.log(`✅ Synced course ${courseId}: ${totalItems} total items across ${Object.keys(groups).length} topic groups`);
+  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
   return saved;
 }
-
-//checking
