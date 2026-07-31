@@ -83,5 +83,3 @@ export async function summarizeComments(comments) {
 
   return parseResponse(data.result);
 }
-
-//checkkk
