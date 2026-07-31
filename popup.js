@@ -204,15 +204,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ---- Pin feature: load + render the pinned list on every popup open ----
+  // (Nothing else was calling loadPins() in this popup, since there are no
+  // .tab elements here — without this line the pinned list never populates.)
+  loadPins();
+
 }); // end DOMContentLoaded
 
-// ---- Tab switching ----
+// ---- Tab switching (safe no-op here since this popup.html has no .tab elements) ----
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
-    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab)?.classList.add('active');
     if (tab.dataset.tab === 'pinned') loadPins();
   });
 });
@@ -229,7 +234,7 @@ function getActiveClassId(callback) {
   });
 }
 
-// ---- Load teachers into select ----
+// ---- Load teachers into select (no-op here — this popup.html has no #teacher-select) ----
 getActiveClassId((classId, tabId) => {
   if (!classId) {
     setStatus('Not on a GCR class page', 'err');
@@ -300,9 +305,12 @@ function timeAgo(ts) {
 }
 
 function loadPins() {
+  const list = document.getElementById('pinned-list');
+  if (!list) return; // this popup.html has no pinned-list container — nothing to render into
+
   getActiveClassId((classId, tabId) => {
     if (!classId || !tabId) {
-      renderPins([], null, null);
+      renderPins([], classId, tabId);
       return;
     }
     chrome.tabs.sendMessage(tabId, { type: 'GET_PINS', classId }, (res) => {
@@ -335,7 +343,7 @@ function renderPins(pins, classId, tabId) {
   pins.slice().reverse().forEach(pin => {
     const item = document.createElement('div');
     item.className = 'pinned-item';
-    item.title = 'Click to scroll to this post';
+    item.title = pin.url ? 'Click to open this announcement' : 'Click to scroll to this post';
     item.innerHTML = `
       <div class="pin-dot"></div>
       <div style="flex:1; min-width:0;">
@@ -347,8 +355,22 @@ function renderPins(pins, classId, tabId) {
 
     item.addEventListener('click', (e) => {
       if (e.target.classList.contains('unpin-btn')) return;
+
+      // This is the actual "go to the task" behavior: if a real permalink
+      // was captured when the post was pinned, navigate straight there.
+      if (pin.url) {
+        chrome.tabs.update(tabId, { url: pin.url });
+        return;
+      }
+
+      // No permalink was found for this post — fall back to scrolling,
+      // which only works if you're already on that class's stream.
       if (!tabId) return;
-      chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_PIN', pinId: pin.id });
+      chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_PIN', pinId: pin.id }, (res) => {
+        if (chrome.runtime.lastError || !res?.found) {
+          alert("Couldn't jump directly to this post — open the class stream and scroll to find it manually.");
+        }
+      });
     });
 
     item.querySelector('.unpin-btn').addEventListener('click', (e) => {
@@ -357,7 +379,13 @@ function renderPins(pins, classId, tabId) {
         const all = data.pinnedPosts || {};
         all[classId] = (all[classId] || []).filter(p => p.id !== pin.id);
         chrome.storage.local.set({ pinnedPosts: all }, () => {
-          if (tabId) chrome.tabs.sendMessage(tabId, { type: 'UNPIN_FROM_POPUP', pinId: pin.id });
+          if (tabId) {
+            chrome.tabs.sendMessage(tabId, { type: 'UNPIN_FROM_POPUP', pinId: pin.id }, () => {
+              if (chrome.runtime.lastError) {
+                console.log('Unpin sync to page failed:', chrome.runtime.lastError.message);
+              }
+            });
+          }
           loadPins();
         });
       });
