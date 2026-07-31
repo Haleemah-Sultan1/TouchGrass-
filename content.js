@@ -1,6 +1,3 @@
-if (!window.__tgLoaded) {
-  window.__tgLoaded = true;
-
 console.log("TouchGrass GCR loaded");
 
 let currentClassId = null;
@@ -9,7 +6,6 @@ let scannedPosts = [];
 let feedObserver = null;
 let debounceTimer = null;
 let currentMatchIndex = -1;
-let currentKnownTotal = null; // NEW: real total from synced API data, set by SET_FILTER
 
 window.__tgTeachers = window.__tgTeachers || new Map();
 window.__tgStudents = window.__tgStudents || new Map();
@@ -79,6 +75,7 @@ function injectPinStyles() {
       letter-spacing: 0.02em;
     }
 
+    /* ---- Floating pin bar ---- */
     #tg-pin-bar {
       position: fixed;
       top: 0;
@@ -203,6 +200,7 @@ function injectDarkModeStyles() {
     body.tg-dark .shimmer {
       background: #1a1a1a !important;
     }
+    /* Keep our own TG elements unaffected */
     body.tg-dark #tg-pin-bar {
       background: #1a1a1a !important;
       border-bottom: 1px solid #2a2a2a !important;
@@ -216,6 +214,10 @@ function injectDarkModeStyles() {
   `;
   document.head.appendChild(style);
 }
+
+// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
+// so GCR's Material Web Components (which render inside shadow DOM) never
+// pick up the dark theme unless we push the styles directly into each root. ----
 
 function injectStyleIntoRoot(root) {
   if (root.querySelector('#tg-dark-styles-shadow')) return;
@@ -236,7 +238,7 @@ function patchShadowRoots(node = document.body) {
   all.forEach(el => {
     if (el.shadowRoot) {
       injectStyleIntoRoot(el.shadowRoot);
-      patchShadowRoots(el.shadowRoot);
+      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
     }
   });
 }
@@ -341,6 +343,7 @@ function refreshPinBar(classId) {
         <span class="tg-bar-chip-unpin" data-pinid="${pin.id}" title="Unpin">✕</span>
       `;
 
+      // Click chip body → scroll to post
       chip.addEventListener('click', (e) => {
         if (e.target.classList.contains('tg-bar-chip-unpin')) return;
         scanStreamPosts();
@@ -353,12 +356,14 @@ function refreshPinBar(classId) {
         }
       });
 
+      // Click ✕ → unpin directly from bar
       chip.querySelector('.tg-bar-chip-unpin').addEventListener('click', (e) => {
         e.stopPropagation();
         const pinId = e.target.getAttribute('data-pinid');
         getPinnedPosts(classId, (pins) => {
           const updated = pins.filter(p => p.id !== pinId);
           savePinnedPosts(classId, updated);
+          // Also remove visual from the card if visible
           scanStreamPosts();
           const match = scannedPosts.find(({ el }) => makePinId(el) === pinId);
           if (match) {
@@ -461,7 +466,7 @@ function injectPinButtonsOnAllCards(classId) {
   scannedPosts.forEach(({ el }) => injectPinButton(el, classId));
 }
 
-// ==================== EXISTING FUNCTIONS ====================
+// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
 
 function getClassId() {
   const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
@@ -534,10 +539,6 @@ function scanStreamPosts() {
   return scannedPosts;
 }
 
-function isNearPageBottom() {
-  return (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 150);
-}
-
 function clearHighlights() {
   document.querySelectorAll('.tg-highlight').forEach(el => {
     el.classList.remove('tg-highlight');
@@ -556,12 +557,9 @@ function removeMatchNav() {
   document.getElementById('tg-match-nav')?.remove();
 }
 
-// CHANGED: takes knownTotal (real count from synced API data, via
-// currentKnownTotal). When present, shows an honest "X shown / Y total"
-// instead of guessing from scroll position.
-function createMatchNav(matches, knownTotal) {
-  const existing = document.getElementById('tg-match-nav');
-  const nav = existing || document.createElement('div');
+function createMatchNav(matches) {
+  removeMatchNav();
+  const nav = document.createElement('div');
   nav.id = 'tg-match-nav';
   nav.style.cssText = `
     position: fixed; bottom: 24px; right: 24px; z-index: 999999;
@@ -569,41 +567,26 @@ function createMatchNav(matches, knownTotal) {
     border-radius: 999px; display: flex; align-items: center; gap: 10px;
     font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   `;
-
-  function label() {
-    if (knownTotal != null) {
-      return matches.length >= knownTotal
-        ? `${currentMatchIndex + 1} / ${knownTotal}`
-        : `${matches.length} shown / ${knownTotal} total`;
-    }
-    return !isNearPageBottom()
-      ? `${matches.length} found (scroll for more)`
-      : `${currentMatchIndex + 1} / ${matches.length}`;
-  }
-
   nav.innerHTML = `
     <button id="tg-prev" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▲</button>
-    <span id="tg-count">${label()}</span>
+    <span id="tg-count">1 / ${matches.length}</span>
     <button id="tg-next" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▼</button>
   `;
-  if (!existing) document.body.appendChild(nav);
+  document.body.appendChild(nav);
 
   nav.querySelector('#tg-prev').onclick = () => {
     currentMatchIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
     scrollToMatch(matches[currentMatchIndex]);
-    nav.querySelector('#tg-count').textContent = label();
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
   };
   nav.querySelector('#tg-next').onclick = () => {
     currentMatchIndex = (currentMatchIndex + 1) % matches.length;
     scrollToMatch(matches[currentMatchIndex]);
-    nav.querySelector('#tg-count').textContent = label();
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
   };
 }
 
-// CHANGED: accepts knownTotal, stores it in currentKnownTotal so watchFeed
-// can reuse it as more posts lazy-load in.
-function applyFilter(teacher, knownTotal) {
-  currentKnownTotal = knownTotal ?? null;
+function applyFilter(teacher) {
   scanStreamPosts();
   clearHighlights();
   if (!teacher || teacher === 'all') return;
@@ -624,7 +607,7 @@ function applyFilter(teacher, knownTotal) {
   if (matches.length > 0) {
     currentMatchIndex = 0;
     scrollToMatch(matches[0]);
-    createMatchNav(matches, currentKnownTotal);
+    createMatchNav(matches);
   }
 }
 
@@ -639,11 +622,10 @@ function saveActiveFilter(classId, teacher) {
 function loadAndApplySavedFilter(classId) {
   chrome.storage.local.get("activeFilters", (data) => {
     const teacher = (data.activeFilters || {})[classId];
-    if (teacher && teacher !== 'all') applyFilter(teacher, null); // no popup context here, so no known total yet
+    if (teacher && teacher !== 'all') applyFilter(teacher);
   });
 }
 
-// CHANGED: reuses currentKnownTotal instead of the old scroll-based guess.
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
@@ -658,6 +640,7 @@ function watchFeed(classId) {
       chrome.storage.local.get("activeFilters", (data) => {
         const teacher = (data.activeFilters || {})[classId];
         if (teacher && teacher !== 'all') {
+          // Re-scan and re-apply without scrolling to top again
           const cards = findStreamCards();
           cards.forEach(el => {
             const text = el.innerText?.trim();
@@ -670,9 +653,12 @@ function watchFeed(classId) {
               el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
             }
           });
+          // Rebuild match nav with updated full list
           const matches = Array.from(document.querySelectorAll('.tg-highlight'));
           if (matches.length > 0) {
-            createMatchNav(matches, currentKnownTotal);
+            removeMatchNav();
+            createMatchNav(matches);
+            // Don't scroll — keep user where they are
           }
         }
       });
@@ -719,11 +705,11 @@ function findClassCommentsContainer() {
 }
 
 // Scrapes {author, dateStr, text} for every class comment inside the
-// comments container. Relies on Classroom's ".VSWCL.QUEiXc" class for the
-// comment body text (confirmed via DevTools inspection) — this is an
-// auto-generated Google class name and may change if Classroom's markup
-// changes; scoping the query to the comments container only (not the
-// whole page) limits the blast radius if that happens.
+// comments container by parsing rendered TEXT CONTENT rather than CSS
+// class names. Google's auto-generated class names (like the ones seen
+// in DevTools) can change between sessions/deployments, so we deliberately
+// avoid depending on them here — a "Name • Date" line followed by comment
+// text is a stable visual/textual pattern even when markup churns.
 function scrapeClassComments() {
   const container = findClassCommentsContainer();
   if (!container) {
@@ -731,39 +717,41 @@ function scrapeClassComments() {
     return [];
   }
 
-  const bodyEls = Array.from(container.querySelectorAll('.VSWCL.QUEiXc'));
+  const fullText = container.innerText || '';
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // TEMP DEBUG: print the first 30 raw lines so we can see the real text
+  // structure and calibrate the parser against actual ground truth instead
+  // of guessing. Safe to remove once parsing is confirmed working.
+  console.log('TouchGrass DEBUG — raw comment-container lines:');
+  lines.slice(0, 30).forEach((l, i) => console.log(`  [${i}] "${l}"`));
+
+  // "Name • Apr 20", "Name • May 2", "Name • Just now", "Name • Edited May 2"
+  const headerRegex = /^(.{1,60}?)\s*•\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(,\s*\d{4})?|Just now|Yesterday|Edited\s+.+)$/i;
+
+  const rawEntries = [];
+  let current = null;
+
+  lines.forEach(line => {
+    const match = line.match(headerRegex);
+    if (match) {
+      if (current) rawEntries.push(current);
+      current = { author: match[1].trim(), dateStr: match[2].trim(), textLines: [] };
+    } else if (current) {
+      current.textLines.push(line);
+    }
+  });
+  if (current) rawEntries.push(current);
+
   const seen = new Set();
   const comments = [];
-
-  bodyEls.forEach(bodyEl => {
-    const bodyText = bodyEl.innerText?.trim();
-    if (!bodyText) return;
-
-    // Climb up to the enclosing comment block, which should also contain
-    // the "Name • Date" header line as its first line of text.
-    let block = bodyEl;
-    let headerLine = null;
-    for (let i = 0; i < 6 && block; i++) {
-      block = block.parentElement;
-      if (!block) break;
-      const firstLine = (block.innerText || '').split('\n')[0]?.trim();
-      if (firstLine && /•/.test(firstLine)) {
-        headerLine = firstLine;
-        break;
-      }
-    }
-    if (!headerLine) return;
-
-    const match = headerLine.match(/^(.+?)\s*•\s*(.+)$/);
-    if (!match) return;
-
-    const author = match[1].trim();
-    const dateStr = match[2].trim();
-    const key = author + '|' + bodyText;
+  rawEntries.forEach(entry => {
+    const text = entry.textLines.join(' ').trim();
+    if (!text) return;
+    const key = entry.author + '|' + text;
     if (seen.has(key)) return;
     seen.add(key);
-
-    comments.push({ author, dateStr, text: bodyText });
+    comments.push({ author: entry.author, dateStr: entry.dateStr, text });
   });
 
   console.log(`TouchGrass: scraped ${comments.length} class comment(s).`);
@@ -1050,7 +1038,7 @@ setInterval(() => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SET_FILTER') {
-    applyFilter(msg.teacher, msg.knownTotal);
+    applyFilter(msg.teacher);
     if (currentClassId) saveActiveFilter(currentClassId, msg.teacher);
     sendResponse({ ok: true, postsFound: scannedPosts.length });
     return true;
@@ -1110,5 +1098,3 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return true;
 });
-
-}
