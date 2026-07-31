@@ -8,10 +8,6 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
 });
 
-// Resolves course IDs to display names using only ACTIVE (non-archived)
-// courses. Returns a map of id -> name; any course ID not found here is
-// archived (or otherwise inaccessible) and should be skipped by callers,
-// never shown as a raw ID.
 async function resolveActiveCourseNames() {
   const knownCourses = await new Promise((resolve) => {
     chrome.storage.local.get("knownCourses", (data) => resolve(data.knownCourses || []));
@@ -19,7 +15,7 @@ async function resolveActiveCourseNames() {
   const nameById = Object.fromEntries(knownCourses.map((c) => [c.id, c.name]));
 
   try {
-    const liveCourses = await fetchCourses(); // ACTIVE only
+    const liveCourses = await fetchCourses();
     liveCourses.forEach((c) => { nameById[c.id] = c.name; });
   } catch (err) {
     console.warn("Couldn't refresh live active course names:", err.message);
@@ -28,14 +24,10 @@ async function resolveActiveCourseNames() {
   return nameById;
 }
 
-// Buddy Program is a mentorship/social class, not an academic subject with
-// assignments to schedule around — always excluded from the planner.
 function isExcludedCourseName(name) {
   return /buddy/i.test(name || "");
 }
 
-// Classifies a piece of coursework into a rough "type of work" bucket, used
-// for the Timetable mode's ranked work-type preference.
 function detectTaskType(item, topicName) {
   if (item.workType === "SHORT_ANSWER_QUESTION" || item.workType === "MULTIPLE_CHOICE_QUESTION") {
     return "Quizzes";
@@ -122,8 +114,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Every active (non-archived, non-Buddy) course — used to populate the
-  // Study Plan mode's subject checklist, since any current course is fair game.
   if (msg.type === "GET_ACTIVE_COURSES") {
     fetchCourses()
       .then((courses) => {
@@ -134,9 +124,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Courses that currently have pending (not-yet-submitted) assignments —
-  // used to populate the Timetable mode's priority-subject dropdown.
-  // Archived courses are silently skipped, never shown as a raw ID.
   if (msg.type === "GET_ALL_SYNCED_TASKS") {
     (async () => {
       try {
@@ -146,7 +133,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tasks = [];
         for (const course of courses) {
           const courseName = nameById[course.courseId];
-          if (!courseName) continue; // archived / no longer active — skip entirely
+          if (!courseName) continue;
           if (isExcludedCourseName(courseName)) continue;
 
           (course.courseWork || []).forEach((cw) => {
@@ -164,8 +151,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Timetable mode: deadline-driven schedule across ALL synced courses'
-  // pending assignments, weighted by priority subject + ranked work-type preferences.
   if (msg.type === "GENERATE_STUDY_PLAN") {
     (async () => {
       try {
@@ -178,7 +163,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const candidateTasks = [];
         for (const course of courses) {
           const courseName = nameById[course.courseId];
-          if (!courseName) continue; // archived — skip entirely
+          if (!courseName) continue;
           if (isExcludedCourseName(courseName)) continue;
 
           (course.courseWork || []).forEach((cw) => {
@@ -236,7 +221,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Study Plan mode: subject/topic study, no deadlines involved.
   if (msg.type === "GENERATE_SUBJECT_STUDY_PLAN") {
     try {
       const startDate = new Date(msg.startDate);
