@@ -1,127 +1,449 @@
-console.log("✅ TouchGrass GCR loaded");
+console.log("TouchGrass GCR loaded");
 
-// ---------- State ----------
 let currentClassId = null;
 let currentPath = location.pathname;
-const postAuthorMap = new WeakMap();
 let scannedPosts = [];
 let feedObserver = null;
+let debounceTimer = null;
+let currentMatchIndex = -1;
 
-// ---------- Utils ----------
+window.__tgTeachers = window.__tgTeachers || new Map();
+window.__tgStudents = window.__tgStudents || new Map();
+
+function cleanupPreviousState() {
+  scannedPosts = [];
+}
+
+// ==================== DARK MODE ====================
+
+function injectDarkModeStyles() {
+  if (document.getElementById('tg-dark-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles';
+  style.textContent = `
+    body.tg-dark,
+    body.tg-dark [data-is-archived="false"],
+    body.tg-dark main,
+    body.tg-dark header,
+    body.tg-dark nav,
+    body.tg-dark aside,
+    body.tg-dark footer,
+    body.tg-dark div,
+    body.tg-dark section,
+    body.tg-dark article,
+    body.tg-dark li,
+    body.tg-dark ul,
+    body.tg-dark form {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+    body.tg-dark * {
+      color: #e8e8e8 !important;
+      box-shadow: none !important;
+    }
+    body.tg-dark a {
+      color: #8ab4f8 !important;
+    }
+    body.tg-dark input,
+    body.tg-dark textarea,
+    body.tg-dark select {
+      background-color: #1a1a1a !important;
+      border-color: #333 !important;
+      color: #e8e8e8 !important;
+    }
+    body.tg-dark img {
+      opacity: 0.88;
+    }
+    body.tg-dark [data-material-css-shimmer],
+    body.tg-dark .shimmer {
+      background: #1a1a1a !important;
+    }
+    body.tg-dark #tg-match-nav {
+      background: #1a1a1a !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
+// so GCR's Material Web Components (which render inside shadow DOM) never
+// pick up the dark theme unless we push the styles directly into each root. ----
+
+function injectStyleIntoRoot(root) {
+  if (root.querySelector('#tg-dark-styles-shadow')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-dark-styles-shadow';
+  style.textContent = `
+    * { color: #e8e8e8 !important; box-shadow: none !important; }
+    div, section, article, li, ul, form, header, nav, aside, footer, main {
+      background-color: #0f0f0f !important;
+      border-color: #222 !important;
+    }
+  `;
+  root.appendChild(style);
+}
+
+function patchShadowRoots(node = document.body) {
+  const all = node.querySelectorAll('*');
+  all.forEach(el => {
+    if (el.shadowRoot) {
+      injectStyleIntoRoot(el.shadowRoot);
+      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
+    }
+  });
+}
+
+function applyDarkMode(enabled) {
+  if (enabled) {
+    document.body.classList.add('tg-dark');
+    patchShadowRoots();
+  } else {
+    document.body.classList.remove('tg-dark');
+  }
+}
+
+function loadDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    injectDarkModeStyles();
+    applyDarkMode(!!data.tgDarkMode);
+  });
+}
+
+function toggleDarkMode() {
+  chrome.storage.local.get('tgDarkMode', (data) => {
+    const next = !data.tgDarkMode;
+    chrome.storage.local.set({ tgDarkMode: next }, () => {
+      applyDarkMode(next);
+    });
+  });
+}
+
+// ==================== PIN SUPPORT ====================
+// Two things live here:
+//  1. An on-page hover pin button, injected onto each stream card, so you
+//     can pin/unpin directly from the Classroom feed (restored).
+//  2. The same GET_STREAM_POSTS / SCROLL_TO_PIN messages the popup uses for
+//     its own "Posts on this page" / "Pinned" lists. Both UIs read and write
+//     the exact same chrome.storage.local "pinnedPosts" schema, so pinning
+//     from the page or from the popup always stay in sync.
+
+function makePinId(el) {
+  const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
+  if (streamId) return streamId;
+  const text = el.innerText?.trim().slice(0, 80) || '';
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'tg_' + Math.abs(hash).toString(36);
+}
+
+// Classroom stream cards usually have a timestamp link like
+// /c/<classId>/p or a/<postId>/details buried inside them — a real,
+// navigable permalink to that individual post.
+function extractPinLink(el) {
+  const anchors = Array.from(el.querySelectorAll('a[href*="/c/"]'));
+  for (const a of anchors) {
+    const href = a.getAttribute('href') || '';
+    if (/\/c\/[^\/]+\/(p|a)\/[^\/]+/.test(href)) {
+      return href.startsWith('http') ? href : (location.origin + href);
+    }
+  }
+  return null;
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ---- On-page hover pin button ----
+
+function injectPinButtonStyles() {
+  if (document.getElementById('tg-pin-btn-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'tg-pin-btn-styles';
+  style.textContent = `
+    .tg-pin-host {
+      position: relative !important;
+      transition: outline 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    }
+    .tg-pin-host:hover {
+      .tg-pin-host:hover {
+      outline: 2px solid #7F77DD !important;
+       box-shadow: 0 0 0 4px rgba(127, 119, 221, 0.13) !important;
+}
+    }
+    .tg-pin-host.tg-card-pinned {
+      outline: 2px solid #7F77DD !important;
+      box-shadow: 0 0 0 4px rgba(127, 119, 221, 0.13) !important;
+      background-color: rgba(127, 119, 221, 0.05) !important;
+    }
+    .tg-pin-btn {
+      position: absolute !important;
+      top: 20px !important;
+      right: 35px !important;
+      /* Was 999998 — high enough to render on top of Classroom's own
+         sticky header when a card scrolls near the top. Kept modest so it
+         stays above the post's own content but never escapes above GCR's
+         chrome. */
+      z-index: 5 !important;
+      opacity: 0;
+      transition: opacity 0.15s, transform 0.15s;
+      background: rgba(24, 24, 24, 0.85) !important;
+      border: none !important;
+      border-radius: 999px !important;
+      width: 30px !important;
+      height: 30px !important;
+      min-width: 30px !important;
+      padding: 0 !important;
+      font-size: 15px !important;
+      line-height: 1 !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
+    }
+    .tg-pin-host:hover .tg-pin-btn,
+    .tg-pin-btn.tg-pinned {
+      opacity: 1;
+    }
+    .tg-pin-btn:hover {
+      transform: scale(1.08);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Same storage read used by popup.js's pin list — kept in lockstep so a pin
+// toggled on the page shows up instantly in the popup, and vice versa.
+function getPinnedIdSet(classId, callback) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const pins = (data.pinnedPosts || {})[classId] || [];
+    callback(new Set(pins.map(p => p.id)), pins);
+  });
+}
+
+// Same storage write used by popup.js's setPinned — identical shape
+// ({ id, snippet, url, pinnedAt }) so both UIs stay compatible.
+function setPinned(classId, post, shouldBePinned, callback) {
+  chrome.storage.local.get("pinnedPosts", (data) => {
+    const all = data.pinnedPosts || {};
+    let pins = all[classId] || [];
+    if (shouldBePinned) {
+      if (!pins.some(p => p.id === post.id)) {
+        pins = [...pins, { id: post.id, snippet: post.snippet, url: post.url, pinnedAt: Date.now() }];
+      }
+    } else {
+      pins = pins.filter(p => p.id !== post.id);
+    }
+    all[classId] = pins;
+    chrome.storage.local.set({ pinnedPosts: all }, callback);
+  });
+}
+
+// Adds (or refreshes) a hover pin button on every currently-scanned stream
+// card. Safe to call repeatedly — it reuses an existing button per card
+// instead of stacking duplicates, and only touches its own tiny corner of
+// each card (position: absolute), so nothing else on the card shifts.
+function injectPinButtons(classId) {
+  if (!classId) return;
+  injectPinButtonStyles();
+
+  getPinnedIdSet(classId, (pinnedIds) => {
+    scannedPosts.forEach(({ el }) => {
+      const id = makePinId(el);
+      const isPinned = pinnedIds.has(id);
+      let btn = el.querySelector(':scope > .tg-pin-btn');
+
+      if (!btn) {
+        el.classList.add('tg-pin-host');
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tg-pin-btn';
+        el.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const post = {
+            id: makePinId(el),
+            snippet: el.innerText?.trim().replace(/\s+/g, ' ').slice(0, 150) || '',
+            url: extractPinLink(el),
+          };
+          const nowPinned = !btn.classList.contains('tg-pinned');
+          setPinned(classId, post, nowPinned, () => {
+            btn.classList.toggle('tg-pinned', nowPinned);
+            btn.textContent = nowPinned ? '📍' : '📌';
+            btn.title = nowPinned ? 'Unpin this post' : 'Pin this post';
+            el.classList.toggle('tg-card-pinned', nowPinned);
+          });
+        });
+      }
+
+      btn.classList.toggle('tg-pinned', isPinned);
+      btn.textContent = isPinned ? '📍' : '📌';
+      btn.title = isPinned ? 'Unpin this post' : 'Pin this post';
+      el.classList.toggle('tg-card-pinned', isPinned);
+    });
+  });
+}
+
+// If a pin is added/removed from the popup while this tab is open, refresh
+// the on-page buttons so the two UIs never fall out of sync.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.pinnedPosts && currentClassId) {
+    injectPinButtons(currentClassId);
+  }
+});
+
+// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
+
 function getClassId() {
   const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
   return match ? match[2] : null;
 }
 
-function looksLikeName(line) {
-  const words = line.split(/\s+/);
-  if (words.length < 2 || words.length > 4) return false;
-  for (const w of words) {
-    if (/\d/.test(w) || w.includes('@') || w.includes('_') || w.includes('-')) return false;
-    if (w[0] !== w[0].toUpperCase()) return false;
-  }
-  const uiText = ['View all', 'Invite', 'Email', 'Sort by', 'Options', 'Help', 'Posted', 'Edited', 'Class comment'];
-  if (uiText.some(ui => line.includes(ui))) return false;
-  return true;
+function isPeoplePage() {
+  return /\/r\/[^\/]+\/sort-last-name/.test(location.pathname);
 }
 
-// ---------- Teacher scraping (People page) ----------
-function scrapeTeachers(classId) {
-  const mainArea = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
-  const fullText = mainArea.innerText;
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-  let teachers = [];
-  let inTeachersSection = false;
-
-  for (let line of lines) {
-    if (line === 'Teachers') { inTeachersSection = true; continue; }
-    if (inTeachersSection && (line === 'Classmates' || line.startsWith('Classmates '))) break;
-    if (inTeachersSection && looksLikeName(line) && !teachers.includes(line)) {
-      teachers.push(line);
-    }
-  }
-
-  if (teachers.length > 0) {
-    chrome.storage.local.get("classPeople", (data) => {
-      const classPeople = data.classPeople || {};
-      classPeople[classId] = { teachers, students: [], scrapedAt: Date.now() };
-      chrome.storage.local.set({ classPeople }, () => {
-        console.log("📇 Teachers saved for", classId, teachers);
-      });
-    });
-  }
+function collectPeopleRows() {
+  document.querySelectorAll('li.ycbm1d').forEach(row => {
+    const nameEl = row.querySelector('.sCv5Q');
+    if (!nameEl) return;
+    const name = nameEl.innerText.trim();
+    const label = row.querySelector('button[aria-label*="Options for"]')?.getAttribute('aria-label') || '';
+    if (label.includes('teacher')) window.__tgTeachers.set(name, true);
+    else if (label.includes('student')) window.__tgStudents.set(name, true);
+  });
 }
 
-// ---------- Stream post scraping ----------
-// Classroom's stream cards are marked with a data-stream-item-id attribute
-// on (or near) each post. The earlier "main [role=listitem]" style
-// selectors don't match Classroom's real markup at all, which is why
-// nothing was ever found. This anchors off the real attribute instead.
-function findPostContainers() {
+function saveAccumulatedPeople(classId) {
+  const teachers = Array.from(window.__tgTeachers.keys());
+  const students = Array.from(window.__tgStudents.keys());
+  chrome.storage.local.get("classPeople", (data) => {
+    const classPeople = data.classPeople || {};
+    classPeople[classId] = { teachers, students, scrapedAt: Date.now() };
+    chrome.storage.local.set({ classPeople });
+  });
+}
+
+function startPeopleAccumulator(classId) {
+  collectPeopleRows();
+  saveAccumulatedPeople(classId);
+  const onScroll = () => { collectPeopleRows(); saveAccumulatedPeople(classId); };
+  window.addEventListener('scroll', onScroll, true);
+  document.addEventListener('scroll', onScroll, true);
+}
+
+function findStreamCards() {
   const markers = document.querySelectorAll('[data-stream-item-id]');
-
   let container = null;
   if (markers.length > 0) container = markers[0].parentElement;
   if (!container) container = document.querySelector('main') || document.body;
 
-  let cards = Array.from(container.children).filter(el =>
-    el.offsetHeight > 20 && el.offsetParent !== null
-  );
+  const cards = Array.from(container.children).filter(el => {
+    return el.offsetHeight > 20 && el.offsetParent !== null;
+  });
 
-  // Fallback: if that didn't yield a plausible list of cards, cast a wider
-  // net across main's direct + grandchild elements as a best-effort guess.
   if (cards.length < 2) {
     const main = document.querySelector('main') || document.body;
-    cards = Array.from(main.querySelectorAll(':scope > *, :scope > * > *'))
-      .filter(el =>
-        el.innerText &&
-        el.innerText.trim().split('\n').length >= 2 &&
-        el.offsetHeight > 40 &&
-        el.offsetHeight < 2000 &&
-        el.offsetParent !== null
-      );
+    return Array.from(main.querySelectorAll(':scope > *, :scope > * > *'))
+      .filter(el => el.offsetHeight > 20 && el.offsetHeight < 2000 && el.offsetParent !== null);
   }
-
   return cards;
 }
 
-function extractAuthorFromPost(postEl) {
-  const lines = postEl.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-  for (let i = 0; i < Math.min(3, lines.length); i++) {
-    if (looksLikeName(lines[i])) return lines[i];
-  }
-  return null;
-}
-
 function scanStreamPosts() {
-  const containers = findPostContainers();
-  scannedPosts = [];
-
-  containers.forEach(postEl => {
-    const author = extractAuthorFromPost(postEl);
-    if (author) {
-      postAuthorMap.set(postEl, author);
-      scannedPosts.push({ el: postEl, author });
-    }
-    // Pin button goes on every scanned card, whether or not we found an author for it.
-    if (currentClassId) injectPinButton(postEl, currentClassId, author || 'Unknown');
+  const cards = findStreamCards();
+  const newPosts = [];
+  cards.forEach(el => {
+    const text = el.innerText?.trim();
+    if (!text) return;
+    const headText = text.slice(0, 120);
+    newPosts.push({ el, headText });
   });
-
-  console.log(`📰 Found ${scannedPosts.length} posts`, scannedPosts.map(p => p.author));
+  if (newPosts.length === 0 && scannedPosts.length > 0) return scannedPosts;
+  scannedPosts = newPosts;
+  console.log(`Stream cards found: ${scannedPosts.length}`);
   return scannedPosts;
 }
 
-// ---------- Filtering ----------
+function clearHighlights() {
+  document.querySelectorAll('.tg-highlight').forEach(el => {
+    el.classList.remove('tg-highlight');
+    el.style.outline = '';
+    el.style.boxShadow = '';
+    el.style.backgroundColor = '';
+  });
+  removeMatchNav();
+}
+
+function scrollToMatch(el) {
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeMatchNav() {
+  document.getElementById('tg-match-nav')?.remove();
+}
+
+function createMatchNav(matches) {
+  removeMatchNav();
+  const nav = document.createElement('div');
+  nav.id = 'tg-match-nav';
+  nav.style.cssText = `
+    position: fixed; bottom: 24px; right: 24px; z-index: 999999;
+    background: #1a1a1a; color: white; padding: 10px 14px;
+    border-radius: 999px; display: flex; align-items: center; gap: 10px;
+    font-family: sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  nav.innerHTML = `
+    <button id="tg-prev" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▲</button>
+    <span id="tg-count">1 / ${matches.length}</span>
+    <button id="tg-next" style="background:none;border:none;color:white;cursor:pointer;font-size:16px;">▼</button>
+  `;
+  document.body.appendChild(nav);
+
+  nav.querySelector('#tg-prev').onclick = () => {
+    currentMatchIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+  nav.querySelector('#tg-next').onclick = () => {
+    currentMatchIndex = (currentMatchIndex + 1) % matches.length;
+    scrollToMatch(matches[currentMatchIndex]);
+    nav.querySelector('#tg-count').textContent = `${currentMatchIndex + 1} / ${matches.length}`;
+  };
+}
+
 function applyFilter(teacher) {
   scanStreamPosts();
-  scannedPosts.forEach(({ el, author }) => {
-    if (teacher === 'all' || !teacher) {
-      el.style.display = '';
-    } else {
-      el.style.display = (author === teacher) ? '' : 'none';
+  clearHighlights();
+  if (!teacher || teacher === 'all') return;
+
+  const matches = [];
+  scannedPosts.forEach(({ el, headText }) => {
+    if (headText.includes(teacher)) {
+      el.classList.add('tg-highlight');
+      el.style.outline = '3px solid #d500f9';
+      el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+      el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+      matches.push(el);
     }
   });
+
+  console.log(`Highlighted ${matches.length} cards for "${teacher}"`);
+
+  if (matches.length > 0) {
+    currentMatchIndex = 0;
+    scrollToMatch(matches[0]);
+    createMatchNav(matches);
+  }
 }
 
 function saveActiveFilter(classId, teacher) {
@@ -139,169 +461,40 @@ function loadAndApplySavedFilter(classId) {
   });
 }
 
-// ==================== PIN FEATURE ====================
-// Adds a 📌 button to every stream card. Pinning stores a snippet plus,
-// when we can find one, a real permalink to that announcement - so
-// clicking a pinned item later can navigate straight there.
-
-const PIN_BTN_CLASS = 'tg-pin-btn';
-
-function injectPinStyles() {
-  if (document.getElementById('tg-pin-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'tg-pin-styles';
-  style.textContent = `
-    .${PIN_BTN_CLASS} {
-      position: absolute;
-      top: 22px;
-      right: 35px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      opacity: 0;
-      transition: opacity 0.15s, transform 0.15s;
-      padding: 4px;
-      border-radius: 6px;
-      z-index: 10;
-      font-size: 18px;
-      line-height: 1;
-      color: #999;
-    }
-    .${PIN_BTN_CLASS}:hover {
-      transform: scale(1.15);
-      background: rgba(127, 119, 221, 0.12);
-    }
-    .${PIN_BTN_CLASS}.tg-pinned-active {
-      opacity: 1 !important;
-      color: #7F77DD;
-    }
-    [data-tg-hoverable]:hover .${PIN_BTN_CLASS} {
-      opacity: 1;
-    }
-    .tg-card-pinned {
-      outline: 2px solid #7F77DD !important;
-      box-shadow: 0 0 0 4px rgba(127, 119, 221, 0.13) !important;
-      background-color: rgba(127, 119, 221, 0.05) !important;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-function hashString(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function getPostSnippet(postEl) {
-  const text = postEl.innerText?.trim().replace(/\s+/g, ' ') || '';
-  return text.slice(0, 120);
-}
-
-// Classroom stream cards usually have a timestamp link like
-// /c/<classId>/p/<postId>/details buried inside them - that's a real,
-// navigable permalink to the individual post.
-function extractPinLink(postEl) {
-  const anchors = Array.from(postEl.querySelectorAll('a[href*="/c/"]'));
-  for (const a of anchors) {
-    const href = a.getAttribute('href') || '';
-    if (/\/c\/[^\/]+\/(p|a)\/[^\/]+/.test(href)) {
-      return href.startsWith('http') ? href : (location.origin + href);
-    }
-  }
-  return null;
-}
-
-function makePinId(postEl, snippet, link) {
-  if (link) {
-    const match = link.match(/\/(p|a)\/([^\/]+)/);
-    if (match) return match[2];
-  }
-  return 'tg_' + hashString(snippet);
-}
-
-function getPinnedPosts(classId, callback) {
-  chrome.storage.local.get("pinnedPosts", (data) => {
-    const all = data.pinnedPosts || {};
-    callback(all[classId] || []);
-  });
-}
-
-function savePinnedPosts(classId, pins) {
-  chrome.storage.local.get("pinnedPosts", (data) => {
-    const all = data.pinnedPosts || {};
-    all[classId] = pins;
-    chrome.storage.local.set({ pinnedPosts: all });
-  });
-}
-
-function togglePin(classId, pinId, snippet, link, el, btn) {
-  getPinnedPosts(classId, (pins) => {
-    const exists = pins.find(p => p.id === pinId);
-    if (exists) {
-      savePinnedPosts(classId, pins.filter(p => p.id !== pinId));
-      btn.textContent = '📌';
-      btn.title = 'Pin this post';
-      btn.classList.remove('tg-pinned-active');
-      el.classList.remove('tg-card-pinned');
-    } else {
-      const newPin = { id: pinId, snippet, url: link, pinnedAt: Date.now() };
-      savePinnedPosts(classId, [...pins, newPin]);
-      btn.textContent = '📍';
-      btn.title = 'Unpin this post';
-      btn.classList.add('tg-pinned-active');
-      el.classList.add('tg-card-pinned');
-    }
-  });
-}
-
-function injectPinButton(postEl, classId, author) {
-  if (postEl.querySelector('.' + PIN_BTN_CLASS)) return;
-  injectPinStyles();
- 
-  postEl.setAttribute('data-tg-hoverable', '1');
-  if (getComputedStyle(postEl).position === 'static') postEl.style.position = 'relative';
- 
-  const snippet = getPostSnippet(postEl);
-  const link = extractPinLink(postEl);
-  const pinId = makePinId(postEl, snippet, link);
- 
-  const btn = document.createElement('button');
-  btn.className = PIN_BTN_CLASS;
-  btn.textContent = '📌';
-  btn.title = 'Pin this post';
-  btn.setAttribute('aria-label', 'Pin this post');
- 
-  getPinnedPosts(classId, (pins) => {
-    if (pins.find(p => p.id === pinId)) {
-      btn.textContent = '📍';
-      btn.title = 'Unpin this post';
-      btn.classList.add('tg-pinned-active');
-      postEl.classList.add('tg-card-pinned');
-    }
-  });
- 
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    togglePin(classId, pinId, snippet, link, postEl, btn);
-  });
- 
-  postEl.appendChild(btn);
-}
-
-// ---------- Watch feed for lazy-loaded posts ----------
 function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
   feedObserver = new MutationObserver(() => {
-    scanStreamPosts(); // re-scans + re-injects pin buttons on newly loaded cards
-    chrome.storage.local.get("activeFilters", (data) => {
-      const teacher = (data.activeFilters || {})[classId];
-      if (teacher && teacher !== 'all') applyFilter(teacher);
-    });
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      scanStreamPosts(); // keep the list fresh for GET_STREAM_POSTS
+      injectPinButtons(classId);
+      if (document.body.classList.contains('tg-dark')) {
+        patchShadowRoots();
+      }
+      chrome.storage.local.get("activeFilters", (data) => {
+        const teacher = (data.activeFilters || {})[classId];
+        if (teacher && teacher !== 'all') {
+          const cards = findStreamCards();
+          cards.forEach(el => {
+            const text = el.innerText?.trim();
+            if (!text) return;
+            const headText = text.slice(0, 120);
+            if (headText.includes(teacher) && !el.classList.contains('tg-highlight')) {
+              el.classList.add('tg-highlight');
+              el.style.outline = '3px solid #d500f9';
+              el.style.boxShadow = '0 0 0 4px rgba(213, 0, 249, 0.15)';
+              el.style.backgroundColor = 'rgba(213, 0, 249, 0.06)';
+            }
+          });
+          const matches = Array.from(document.querySelectorAll('.tg-highlight'));
+          if (matches.length > 0) {
+            removeMatchNav();
+            createMatchNav(matches);
+          }
+        }
+      });
+    }, 600);
   });
   feedObserver.observe(mainArea, { childList: true, subtree: true });
 }
@@ -309,7 +502,7 @@ function watchFeed(classId) {
 // ==================== MILESTONE 7: COMMENT SUMMARIZATION ====================
 // Everything in this section is new and additive. It only activates on a
 // specific coursework detail page (/c/<classId>/a/<courseworkId>/details)
-// and does not touch any of the stream/pin/dark-mode/people logic above.
+// and does not touch any of the stream/dark-mode/people logic above.
 
 function isCourseworkDetailPage() {
   return /\/c\/[^\/]+\/a\/[^\/]+\/details/.test(location.pathname);
@@ -634,8 +827,10 @@ function injectCommentSummaryButton(classId, courseworkId) {
   document.body.appendChild(fab);
 }
 
-// ---------- Run on load + SPA nav ----------
+// ==================== INIT ====================
+
 function handlePageContext() {
+  cleanupPreviousState();
   const classId = getClassId();
   if (!classId) return;
   currentClassId = classId;
@@ -648,7 +843,6 @@ function handlePageContext() {
     const courseworkId = getCourseworkIdFromUrl();
     setTimeout(() => injectCommentSummaryButton(classId, courseworkId), 800);
   } else {
-    injectPinStyles();
     loadDarkMode();
     let attempts = 0;
     const tryInit = () => {
@@ -656,9 +850,8 @@ function handlePageContext() {
       const cards = findStreamCards();
       if (cards.length > 0 || attempts > 10) {
         scanStreamPosts();
-        injectPinButtonsOnAllCards(classId);
-        refreshPinBar(classId);
         loadAndApplySavedFilter(classId);
+        injectPinButtons(classId);
         watchFeed(classId);
       } else {
         setTimeout(tryInit, 800);
@@ -677,63 +870,55 @@ setInterval(() => {
   }
 }, 800);
 
-// ---------- Messages from popup ----------
+// ==================== MESSAGE LISTENER ====================
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SET_FILTER') {
     applyFilter(msg.teacher);
     if (currentClassId) saveActiveFilter(currentClassId, msg.teacher);
     sendResponse({ ok: true, postsFound: scannedPosts.length });
+    return true;
   }
   if (msg.type === 'GET_DEBUG') {
-    sendResponse({ classId: currentClassId, postsFound: scannedPosts.length, authors: scannedPosts.map(p => p.author) });
+    sendResponse({ classId: currentClassId, postsFound: scannedPosts.length });
+    return true;
   }
-  if (msg.type === 'GET_PINS') {
-    getPinnedPosts(msg.classId || currentClassId, (pins) => {
-      sendResponse({ pins });
-    });
-    return true; // async response
+  // Popup asks for everything currently visible on the page, so it can
+  // offer a pin toggle for each one — no button is ever injected here.
+  if (msg.type === 'GET_STREAM_POSTS') {
+    scanStreamPosts();
+    const posts = scannedPosts.map(({ el }) => ({
+      id: makePinId(el),
+      snippet: el.innerText?.trim().replace(/\s+/g, ' ').slice(0, 150) || '',
+      url: extractPinLink(el),
+    }));
+    sendResponse({ posts });
+    return true;
   }
+  // Fallback for pins that never captured a real permalink (rare) — only
+  // used when the popup can't just navigate straight to pin.url.
   if (msg.type === 'SCROLL_TO_PIN') {
     scanStreamPosts();
-    const containers = findPostContainers();
-    let found = null;
-    for (const el of containers) {
-      const snippet = getPostSnippet(el);
-      const link = extractPinLink(el);
-      const id = makePinId(el, snippet, link);
-      if (id === msg.pinId) { found = el; break; }
+    const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
+    if (match) {
+      scrollToMatch(match.el);
+      match.el.style.transition = 'box-shadow 0.3s';
+      match.el.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
+      setTimeout(() => { match.el.style.boxShadow = ''; }, 1500);
     }
-    if (found) {
-      found.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      found.style.transition = 'box-shadow 0.3s';
-      found.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
-      setTimeout(() => { found.style.boxShadow = ''; }, 1500);
-    }
-    sendResponse({ found: !!found });
+    sendResponse({ found: !!match });
+    return true;
   }
-  if (msg.type === 'UNPIN_FROM_POPUP') {
-    getPinnedPosts(currentClassId, (pins) => {
-      const updated = pins.filter(p => p.id !== msg.pinId);
-      savePinnedPosts(currentClassId, updated);
-      scanStreamPosts();
-      const containers = findPostContainers();
-      for (const el of containers) {
-        const snippet = getPostSnippet(el);
-        const link = extractPinLink(el);
-        const id = makePinId(el, snippet, link);
-        if (id === msg.pinId) {
-          el.classList.remove('tg-card-pinned');
-          const btn = el.querySelector('.' + PIN_BTN_CLASS);
-          if (btn) {
-            btn.textContent = '📌';
-            btn.title = 'Pin this post';
-            btn.classList.remove('tg-pinned-active');
-          }
-          break;
-        }
-      }
-    });
+  if (msg.type === 'TOGGLE_DARK_MODE') {
+    toggleDarkMode();
     sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === 'GET_DARK_MODE') {
+    chrome.storage.local.get('tgDarkMode', (data) => {
+      sendResponse({ enabled: !!data.tgDarkMode });
+    });
+    return true;
   }
   return true;
 });
