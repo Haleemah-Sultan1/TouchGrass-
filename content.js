@@ -301,6 +301,75 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// ==================== FILE COLLECTION (PDF attachments) ====================
+
+function hashStringForFiles(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// Classroom attachment chips are usually <a> links to Drive. This filters
+// to ones that look like PDFs — heuristic based on the visible label or
+// the href, since Classroom doesn't expose file type as a clean attribute.
+function scanAttachmentsInPost(postEl) {
+  const anchors = Array.from(postEl.querySelectorAll('a[href]'));
+  const files = [];
+
+  anchors.forEach(a => {
+    const href = a.getAttribute('href') || '';
+    const label = (a.innerText || a.getAttribute('aria-label') || '').trim();
+
+    const isDriveFile = /drive\.google\.com\/(file\/d\/|open\?id=)/.test(href);
+    const looksLikePdf = /\.pdf(\?|$)/i.test(href) || /\.pdf\b/i.test(label);
+
+    if (isDriveFile && looksLikePdf) {
+      files.push({ title: label || 'Untitled PDF', url: href });
+    }
+  });
+
+  return files;
+}
+
+function collectFilesForClass(classId) {
+  const cards = findStreamCards();
+  const collected = [];
+
+  cards.forEach(postEl => {
+    const files = scanAttachmentsInPost(postEl);
+    if (files.length === 0) return;
+
+    const announcementUrl = extractPinLink(postEl); // reuses your existing helper
+    const snippet = postEl.innerText?.trim().replace(/\s+/g, ' ').slice(0, 120) || '';
+
+    files.forEach(f => {
+      collected.push({
+        id: 'tg_file_' + hashStringForFiles(f.url),
+        title: f.title,
+        url: f.url,
+        announcementUrl,
+        announcementSnippet: snippet,
+      });
+    });
+  });
+
+  return collected;
+}
+
+// Merges by id so re-scanning (e.g. on every watchFeed cycle) doesn't
+// duplicate files already known from a previous scan.
+function saveCollectedFiles(classId, files) {
+  chrome.storage.local.get("classFiles", (data) => {
+    const all = data.classFiles || {};
+    const existing = all[classId] || [];
+    const byId = new Map(existing.map(f => [f.id, f]));
+    files.forEach(f => byId.set(f.id, f));
+    all[classId] = Array.from(byId.values());
+    chrome.storage.local.set({ classFiles: all });
+  });
+}
 // ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
 
 function getClassId() {
@@ -423,6 +492,7 @@ function createMatchNav(matches) {
 
 function applyFilter(teacher) {
   scanStreamPosts();
+
   clearHighlights();
   if (!teacher || teacher === 'all') return;
 
@@ -468,6 +538,7 @@ function watchFeed(classId) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       scanStreamPosts(); // keep the list fresh for GET_STREAM_POSTS
+      saveCollectedFiles(classId, collectFilesForClass(classId));  
       injectPinButtons(classId);
       if (document.body.classList.contains('tg-dark')) {
         patchShadowRoots();
@@ -850,6 +921,7 @@ function handlePageContext() {
       const cards = findStreamCards();
       if (cards.length > 0 || attempts > 10) {
         scanStreamPosts();
+        saveCollectedFiles(classId, collectFilesForClass(classId));  
         loadAndApplySavedFilter(classId);
         injectPinButtons(classId);
         watchFeed(classId);
@@ -919,6 +991,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ enabled: !!data.tgDarkMode });
     });
     return true;
+  }
+  if (msg.type === 'GET_CLASS_FILES') {
+  chrome.storage.local.get("classFiles", (data) => {
+    sendResponse({ files: (data.classFiles || {})[msg.classId || currentClassId] || [] });
+  });
+  return true;
   }
   return true;
 });
