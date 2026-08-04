@@ -314,25 +314,67 @@ function hashStringForFiles(str) {
 // Classroom attachment chips are usually <a> links to Drive. This filters
 // to ones that look like PDFs — heuristic based on the visible label or
 // the href, since Classroom doesn't expose file type as a clean attribute.
+// function scanAttachmentsInPost(postEl) {
+//   const anchors = Array.from(postEl.querySelectorAll('a[href]'));
+//   const files = [];
+
+//   anchors.forEach(a => {
+//     const href = a.getAttribute('href') || '';
+//     const label = (a.innerText || a.getAttribute('aria-label') || '').trim();
+
+//     const isDriveFile = /drive\.google\.com\/(file\/d\/|open\?id=)/.test(href);
+//     const looksLikePdf = /\.pdf(\?|$)/i.test(href) || /\.pdf\b/i.test(label);
+
+//     if (isDriveFile && looksLikePdf) {
+//       files.push({ title: label || 'Untitled PDF', url: href });
+//     }
+//   });
+
+//   return files;
+// }
 function scanAttachmentsInPost(postEl) {
   const anchors = Array.from(postEl.querySelectorAll('a[href]'));
   const files = [];
 
   anchors.forEach(a => {
     const href = a.getAttribute('href') || '';
-    const label = (a.innerText || a.getAttribute('aria-label') || '').trim();
+    const ariaLabel = (a.getAttribute('aria-label') || '').trim();
+    const label = ariaLabel || (a.innerText || '').trim();
 
     const isDriveFile = /drive\.google\.com\/(file\/d\/|open\?id=)/.test(href);
-    const looksLikePdf = /\.pdf(\?|$)/i.test(href) || /\.pdf\b/i.test(label);
+
+    // Classroom's own aria-label says "Attachment: PDF: <filename>" for
+    // PDFs specifically — much more reliable than guessing from the
+    // visible filename text, which doesn't always show the extension.
+    const looksLikePdf =
+      /^attachment:\s*pdf:/i.test(ariaLabel) ||
+      /\.pdf(\?|$)/i.test(href) ||
+      /\.pdf\b/i.test(label);
 
     if (isDriveFile && looksLikePdf) {
-      files.push({ title: label || 'Untitled PDF', url: href });
+      files.push({
+        title: label.replace(/^Attachment:\s*PDF:\s*/i, '').trim() || 'Untitled PDF',
+        url: href,
+      });
     }
   });
 
   return files;
 }
+// Coursework/assignment detail pages aren't a list of "cards" like the
+// stream — it's one page, so scan the whole main area instead.
+function collectFilesFromCourseworkPage(classId) {
+  const mainArea = document.querySelector('main') || document.body;
+  const files = scanAttachmentsInPost(mainArea);
 
+  return files.map(f => ({
+    id: 'tg_file_' + hashStringForFiles(f.url),
+    title: f.title,
+    url: f.url,
+    announcementUrl: location.href,
+    announcementSnippet: document.title || '',
+  }));
+}
 function collectFilesForClass(classId) {
   const cards = findStreamCards();
   const collected = [];
@@ -912,7 +954,10 @@ function handlePageContext() {
     setTimeout(() => startPeopleAccumulator(classId), 800);
   } else if (isCourseworkDetailPage()) {
     const courseworkId = getCourseworkIdFromUrl();
-    setTimeout(() => injectCommentSummaryButton(classId, courseworkId), 800);
+    setTimeout(() => {
+      injectCommentSummaryButton(classId, courseworkId);
+      saveCollectedFiles(classId, collectFilesFromCourseworkPage(classId));   // ← add this line
+    }, 800);
   } else {
     loadDarkMode();
     let attempts = 0;
