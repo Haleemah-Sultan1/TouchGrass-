@@ -3,6 +3,13 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
 
+  document.getElementById('openFiles')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const match = (tabs[0]?.url || '').match(/\/(c|r)\/([^\/]+)/);
+    const classId = match ? match[2] : '';
+    chrome.tabs.create({ url: chrome.runtime.getURL(`files.html?classId=${classId}`) });
+  });
+});
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
   const debugBox = document.getElementById("debugBox");
