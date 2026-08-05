@@ -245,4 +245,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+
+  if (msg.type === "EXTRACT_CHECKLIST") {
+  extractChecklist(msg.instructionsText)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
 });

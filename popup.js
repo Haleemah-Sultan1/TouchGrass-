@@ -2,7 +2,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("openPlanner")?.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
-
+  document.getElementById("openChecklist").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("checklist.html") });
+  });
   document.getElementById('openFiles')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const match = (tabs[0]?.url || '').match(/\/(c|r)\/([^\/]+)/);

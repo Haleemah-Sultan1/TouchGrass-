@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>TouchGrass — Submission Checker</title>
+</head>
+<body>
+  <h2>Submission Checker</h2>
+
+  <textarea id="instructionsInput" rows="10" cols="60" placeholder="Paste the assignment instructions here..."></textarea>
+  <br />
+  <button id="extractBtn">Extract Checklist</button>
+  <p id="extractStatus"></p>
+
+  <div id="checklistBox"></div>
+
+  <h3>Check your file names</h3>
+  <input type="file" id="fileInput" multiple />
+  <div id="fileCheckResult"></div>
+
+  <script type="module" src="checklist.js"></script>
+</body>
+</html>
