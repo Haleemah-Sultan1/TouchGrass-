@@ -1,4 +1,3 @@
-import { checkFileNames } from "./submissionChecker.js";
 import { checkFileNames, verifyChecklistAgainstFiles } from "./submissionChecker.js";
 
 const instructionsInput = document.getElementById("instructionsInput");
