@@ -1,4 +1,4 @@
-import { fetchCourses, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
+import { fetchCourses, fetchAllCoursesAnyState, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
 import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
@@ -42,10 +42,10 @@ function detectTaskType(item, topicName) {
 // ---------- Messages from popup / planner / content script ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "TEST_AUTH") {
-    fetchCourses()
+    fetchAllCoursesAnyState()
       .then((courses) => sendResponse({
         ok: true,
-        courses: courses.map(c => ({ id: c.id, name: c.name })),
+        courses: courses.map(c => ({ id: c.id, name: c.name, courseState: c.courseState })),
       }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

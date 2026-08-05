@@ -38,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     courses.forEach(c => {
       const opt = document.createElement("option");
       opt.value = c.id;
-      opt.textContent = c.name;
+      opt.textContent = c.courseState === "ARCHIVED" ? `${c.name} (Archived)` : c.name;
       opt.dataset.name = c.name;
       courseSelect.appendChild(opt);
     });

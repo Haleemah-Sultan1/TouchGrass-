@@ -9,7 +9,12 @@
     .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
     .toolbar button { padding:8px 14px; background:#007bff; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; }
     .toolbar button:hover { background:#0056b3; }
+    #search-box { flex:1; min-width:160px; padding:8px 12px; background:#1c1c1c; color:#eee; border:1px solid #444; border-radius:4px; font-size:13px; box-sizing:border-box; }
     #file-count { color:#888; font-size:13px; margin-left:auto; }
+    #type-filters { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+    .type-filter-btn { padding:6px 14px; background:#1c1c1c; border:1px solid #333; border-radius:16px; color:#aaa; font-size:12px; cursor:pointer; }
+    .type-filter-btn:hover { border-color:#555; color:#ddd; }
+    .type-filter-btn.active { background:#6f42c1; color:#fff; border-color:#6f42c1; }
     table { width:100%; border-collapse:collapse; }
     th, td { padding:10px; border-bottom:1px solid #333; text-align:left; font-size:13px; vertical-align:middle; }
     th { color:#aaa; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; }
@@ -22,16 +27,18 @@
   </style>
 </head>
 <body>
-  <h2>📎 All PDF Attachments</h2>
+  <h2>📎 All Files</h2>
   <div class="toolbar">
     <label><input type="checkbox" id="select-all"> Select all</label>
+    <input type="text" id="search-box" placeholder="🔍 Search files...">
     <button id="open-selected">Open selected in new tabs</button>
     <button id="download-selected">Download selected</button>
     <span id="file-count"></span>
   </div>
+  <div id="type-filters"></div>
   <table>
     <thead>
-      <tr><th></th><th>File</th><th>From announcement</th><th>Actions</th></tr>
+      <tr><th></th><th>Type</th><th>File</th><th>From announcement</th><th>Actions</th></tr>
     </thead>
     <tbody id="files-tbody"></tbody>
   </table>

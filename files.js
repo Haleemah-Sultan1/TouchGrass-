@@ -4,8 +4,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const openSelectedBtn = document.getElementById('open-selected');
   const downloadSelectedBtn = document.getElementById('download-selected');
   const countEl = document.getElementById('file-count');
+  const searchBox = document.getElementById('search-box');
+  const typeFiltersEl = document.getElementById('type-filters');
 
   let currentFiles = [];
+  let activeType = 'all';   // 'all' or a specific fileType like 'PDF'
+  let searchQuery = '';
 
   function getClassIdFromQuery() {
     return new URLSearchParams(location.search).get('classId');
@@ -27,26 +31,81 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!classId) { renderEmpty("Couldn't determine which class to show files for."); return; }
     chrome.storage.local.get("classFiles", (data) => {
       currentFiles = (data.classFiles || {})[classId] || [];
+      activeType = 'all';
+      searchQuery = '';
+      if (searchBox) searchBox.value = '';
+      renderTypeFilters();
       render();
     });
   }
 
+  // Builds the "All / PDF / PPTX / PNG / ..." pill row from whatever
+  // types are actually present in this class's files - no fixed list to
+  // maintain, it just reflects whatever got synced.
+  function renderTypeFilters() {
+    if (!typeFiltersEl) return;
+    if (!currentFiles.length) { typeFiltersEl.innerHTML = ''; return; }
+
+    const counts = {};
+    currentFiles.forEach(f => {
+      const t = f.fileType || 'FILE';
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    const types = Object.keys(counts).sort();
+
+    const pills = [{ label: `All (${currentFiles.length})`, value: 'all' },
+      ...types.map(t => ({ label: `${t} (${counts[t]})`, value: t }))];
+
+    typeFiltersEl.innerHTML = '';
+    pills.forEach(p => {
+      const btn = document.createElement('button');
+      btn.className = 'type-filter-btn' + (activeType === p.value ? ' active' : '');
+      btn.textContent = p.label;
+      btn.addEventListener('click', () => {
+        activeType = p.value;
+        renderTypeFilters();
+        render();
+      });
+      typeFiltersEl.appendChild(btn);
+    });
+  }
+
+  function getFilteredFiles() {
+    const q = searchQuery.trim().toLowerCase();
+    return currentFiles.filter(f => {
+      if (activeType !== 'all' && (f.fileType || 'FILE') !== activeType) return false;
+      if (!q) return true;
+      const haystack = `${f.title || ''} ${f.announcementSnippet || ''}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }
+
   function renderEmpty(msg) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">${msg}</td></tr>`;
     countEl.textContent = '';
   }
 
   function render() {
-    countEl.textContent = currentFiles.length ? `${currentFiles.length} file(s)` : '';
     if (!currentFiles.length) {
-      renderEmpty('No PDF attachments found yet. Open the class stream, let it finish loading, then reopen this page.');
+      countEl.textContent = '';
+      renderEmpty('No files found yet. Open the class stream, let it finish loading, then reopen this page — or sync a course from the popup to pull in everything at once.');
       return;
     }
+
+    const filtered = getFilteredFiles();
+    countEl.textContent = `${filtered.length} of ${currentFiles.length} file(s)`;
+
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">No files match your current filter/search.</td></tr>`;
+      return;
+    }
+
     tbody.innerHTML = '';
-    currentFiles.forEach(file => {
+    filtered.forEach(file => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><input type="checkbox" class="file-check" data-id="${file.id}"></td>
+        <td>${escapeHtml(file.fileType || 'FILE')}</td>
         <td class="file-title">${escapeHtml(file.title)}</td>
         <td class="file-context">${escapeHtml(file.announcementSnippet || '')}</td>
         <td class="file-actions">
@@ -70,6 +129,14 @@ document.addEventListener('DOMContentLoaded', () => {
   selectAll.addEventListener('change', () => {
     document.querySelectorAll('.file-check').forEach(cb => cb.checked = selectAll.checked);
   });
+
+  if (searchBox) {
+    searchBox.addEventListener('input', () => {
+      searchQuery = searchBox.value;
+      selectAll.checked = false;
+      render();
+    });
+  }
 
   openSelectedBtn.addEventListener('click', () => {
     const selected = getSelectedFiles();
@@ -97,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function sanitizeFilename(name) {
-    return (name || 'file.pdf').replace(/[\\/:*?"<>|]/g, '_');
+    return (name || 'attachment').replace(/[\\/:*?"<>|]/g, '_');
   }
 
   function escapeHtml(str) {
