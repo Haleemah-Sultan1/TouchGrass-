@@ -100,14 +100,14 @@
                 font-style: italic;
             }
 
-        /* ---- Posts on this page / Pinned posts (shared list styling) ---- */
-        #stream-section, #pinned-section {
+        /* ---- / Pinned posts---- */
+        #pinned-section {
             margin-top: 14px;
             border-top: 1px solid #333;
             padding-top: 10px;
         }
 
-        #stream-header, #pinned-header {
+        #pinned-header {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -117,7 +117,7 @@
             margin-bottom: 6px;
         }
 
-        #stream-list, #pinned-list {
+        #pinned-list {
             display: flex;
             flex-direction: column;
             gap: 6px;
@@ -219,11 +219,6 @@
     </select>
 
     <button id="applyFilters">Apply Filter</button>
-
-    <div id="stream-section">
-      <div id="stream-header">📄 Posts on this page <span id="stream-count"></span></div>
-      <div id="stream-list"><div class="empty-state">Loading…</div></div>
-    </div>
 
     <div id="pinned-section">
       <div id="pinned-header">📌 Pinned <span id="pin-count"></span></div>

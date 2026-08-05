@@ -223,7 +223,64 @@ export function getAllCachedCourses() {
     });
   });
 }
+// ---------- File attachment extraction (PDF/PPT) ----------
+// Classroom's `materials` array has the same shape on courseWork,
+// courseWorkMaterials, AND announcements alike. This pulls every
+// Drive-hosted PDF/PPT out of it directly from the synced API data —
+// unlike DOM scraping, this sees every item Classroom returns, not just
+// whatever page happens to be open right now.
+const SUPPORTED_FILE_EXTENSIONS = [
+  { type: 'PDF',  extRegex: /\.pdf$/i },
+  { type: 'PPTX', extRegex: /\.pptx?$/i },
+];
 
+function detectFileType(title) {
+  for (const { type, extRegex } of SUPPORTED_FILE_EXTENSIONS) {
+    if (extRegex.test(title || '')) return type;
+  }
+  return null;
+}
+
+function extractFilesFromItem(item) {
+  const files = [];
+  (item.materials || []).forEach((m) => {
+    const driveFile = m.driveFile?.driveFile;
+    if (!driveFile || !driveFile.alternateLink) return;
+
+    const fileType = detectFileType(driveFile.title);
+    if (!fileType) return;
+
+    files.push({
+      id: `tg_file_${driveFile.id}`,
+      title: driveFile.title || `Untitled ${fileType}`,
+      url: driveFile.alternateLink,
+      fileType,
+      announcementUrl: item.alternateLink || null,
+      announcementSnippet: item.title || (item.text ? item.text.slice(0, 120) : ''),
+    });
+  });
+  return files;
+}
+
+// Writes extracted files into the SAME `classFiles` storage bucket the
+// "Open All Files" page already reads from — no changes needed there.
+// Keyed by the DOM-visible classId, which is just base64(courseId).
+async function syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMaterials, announcements) {
+  const allItems = [...(courseWork || []), ...(courseWorkMaterials || []), ...(announcements || [])];
+  const files = allItems.flatMap(extractFilesFromItem);
+  const classId = btoa(courseId); // service-worker context has btoa built in
+
+  await new Promise((resolve) => {
+    chrome.storage.local.get("classFiles", (data) => {
+      const classFiles = data.classFiles || {};
+      classFiles[classId] = files;
+      chrome.storage.local.set({ classFiles }, resolve);
+    });
+  });
+
+  console.log(`📎 Synced ${files.length} file attachment(s) into classFiles[${classId}] for course ${courseId}`);
+  return files;
+}
 // ---------- Main entry point: sync everything for one course ----------
 // courseName is passed in from the caller (which already has it from the
 // course dropdown) since the Classroom API's per-course endpoints don't
@@ -267,5 +324,7 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
+
+   await syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMaterials, announcements);
   return saved;
 }

@@ -311,27 +311,11 @@ function hashStringForFiles(str) {
   return Math.abs(hash).toString(36);
 }
 
-// Classroom attachment chips are usually <a> links to Drive. This filters
-// to ones that look like PDFs — heuristic based on the visible label or
-// the href, since Classroom doesn't expose file type as a clean attribute.
-// function scanAttachmentsInPost(postEl) {
-//   const anchors = Array.from(postEl.querySelectorAll('a[href]'));
-//   const files = [];
+const SUPPORTED_ATTACHMENT_TYPES = [
+  { type: 'PDF',  ariaPrefix: /^attachment:\s*pdf:/i,                          extRegex: /\.pdf(\?|$)/i   },
+  { type: 'PPTX', ariaPrefix: /^attachment:\s*(powerpoint|presentation)[^:]*:/i, extRegex: /\.pptx?(\?|$)/i },
+];
 
-//   anchors.forEach(a => {
-//     const href = a.getAttribute('href') || '';
-//     const label = (a.innerText || a.getAttribute('aria-label') || '').trim();
-
-//     const isDriveFile = /drive\.google\.com\/(file\/d\/|open\?id=)/.test(href);
-//     const looksLikePdf = /\.pdf(\?|$)/i.test(href) || /\.pdf\b/i.test(label);
-
-//     if (isDriveFile && looksLikePdf) {
-//       files.push({ title: label || 'Untitled PDF', url: href });
-//     }
-//   });
-
-//   return files;
-// }
 function scanAttachmentsInPost(postEl) {
   const anchors = Array.from(postEl.querySelectorAll('a[href]'));
   const files = [];
@@ -342,19 +326,24 @@ function scanAttachmentsInPost(postEl) {
     const label = ariaLabel || (a.innerText || '').trim();
 
     const isDriveFile = /drive\.google\.com\/(file\/d\/|open\?id=)/.test(href);
+    const isGoogleSlides = /docs\.google\.com\/presentation\/d\//.test(href);
 
-    // Classroom's own aria-label says "Attachment: PDF: <filename>" for
-    // PDFs specifically — much more reliable than guessing from the
-    // visible filename text, which doesn't always show the extension.
-    const looksLikePdf =
-      /^attachment:\s*pdf:/i.test(ariaLabel) ||
-      /\.pdf(\?|$)/i.test(href) ||
-      /\.pdf\b/i.test(label);
+    if (!isDriveFile && !isGoogleSlides) return;
 
-    if (isDriveFile && looksLikePdf) {
+    let matchedType = null;
+    for (const { type, ariaPrefix, extRegex } of SUPPORTED_ATTACHMENT_TYPES) {
+      if (ariaPrefix.test(ariaLabel) || extRegex.test(href) || extRegex.test(label)) {
+        matchedType = type;
+        break;
+      }
+    }
+    if (!matchedType && isGoogleSlides) matchedType = 'PPTX';
+
+    if (matchedType) {
       files.push({
-        title: label.replace(/^Attachment:\s*PDF:\s*/i, '').trim() || 'Untitled PDF',
+        title: label.replace(/^Attachment:\s*[^:]*:\s*/i, '').trim() || `Untitled ${matchedType}`,
         url: href,
+        fileType: matchedType,
       });
     }
   });
@@ -370,11 +359,13 @@ function collectFilesFromCourseworkPage(classId) {
   return files.map(f => ({
     id: 'tg_file_' + hashStringForFiles(f.url),
     title: f.title,
-    url: f.url,
+     url: f.url,
+    fileType: f.fileType,
     announcementUrl: location.href,
     announcementSnippet: document.title || '',
   }));
 }
+
 function collectFilesForClass(classId) {
   const cards = findStreamCards();
   const collected = [];
@@ -391,6 +382,7 @@ function collectFilesForClass(classId) {
         id: 'tg_file_' + hashStringForFiles(f.url),
         title: f.title,
         url: f.url,
+        fileType: f.fileType,
         announcementUrl,
         announcementSnippet: snippet,
       });
@@ -618,11 +610,11 @@ function watchFeed(classId) {
 // and does not touch any of the stream/dark-mode/people logic above.
 
 function isCourseworkDetailPage() {
-  return /\/c\/[^\/]+\/a\/[^\/]+\/details/.test(location.pathname);
+  return /\/c\/[^\/]+\/(a|m|p)\/[^\/]+\/details/.test(location.pathname);
 }
 
 function getCourseworkIdFromUrl() {
-  const match = location.pathname.match(/\/c\/[^\/]+\/a\/([^\/]+)\/details/);
+  const match = location.pathname.match(/\/c\/[^\/]+\/(?:a|m|p)\/([^\/]+)\/details/);
   return match ? match[1] : null;
 }
 
