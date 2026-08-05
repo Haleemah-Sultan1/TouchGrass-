@@ -3,7 +3,6 @@ import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
 import { summarizeComments } from "./commentSummary.js";
-import { extractChecklist } from "./submissionChecker.js";
 import { extractChecklist, verifyChecklistAgainstFiles } from "./submissionChecker.js";
 
 chrome.runtime.onInstalled.addListener(() => {
