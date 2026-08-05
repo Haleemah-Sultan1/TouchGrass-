@@ -106,8 +106,8 @@ document.addEventListener('DOMContentLoaded', () => {
       tr.innerHTML = `
         <td><input type="checkbox" class="file-check" data-id="${file.id}"></td>
         <td>${escapeHtml(file.fileType || 'FILE')}</td>
-        <td class="file-title">${escapeHtml(file.title)}</td>
-        <td class="file-context">${escapeHtml(file.announcementSnippet || '')}</td>
+        <td class="file-title">${highlightMatch(file.title, searchQuery)}</td>
+        <td class="file-context">${highlightMatch(file.announcementSnippet || '', searchQuery)}</td>
         <td class="file-actions">
           <button class="open-btn">Open</button>
           ${file.announcementUrl ? `<button class="ann-btn">Open in Announcement</button>` : ''}
@@ -165,6 +165,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function sanitizeFilename(name) {
     return (name || 'attachment').replace(/[\\/:*?"<>|]/g, '_');
+  }
+
+  function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Escapes the text for safe HTML insertion, then wraps every match of
+  // the current search query in <mark> — same idea as Ctrl+F highlighting.
+  function highlightMatch(text, query) {
+    const escaped = escapeHtml(text || '');
+    const q = (query || '').trim();
+    if (!q) return escaped;
+    const regex = new RegExp(`(${escapeRegExp(q)})`, 'ig');
+    return escaped.replace(regex, '<mark class="search-hl">$1</mark>');
   }
 
   function escapeHtml(str) {

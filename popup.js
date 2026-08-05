@@ -35,13 +35,26 @@ document.addEventListener("DOMContentLoaded", () => {
       courseSelect.innerHTML = '<option value="">No courses found</option>';
       return;
     }
-    courses.forEach(c => {
+
+    function addOption(parent, c) {
       const opt = document.createElement("option");
       opt.value = c.id;
-      opt.textContent = c.courseState === "ARCHIVED" ? `${c.name} (Archived)` : c.name;
+      opt.textContent = c.name;
       opt.dataset.name = c.name;
-      courseSelect.appendChild(opt);
-    });
+      parent.appendChild(opt);
+    }
+
+    const active = courses.filter(c => c.courseState !== "ARCHIVED");
+    const archived = courses.filter(c => c.courseState === "ARCHIVED");
+
+    active.forEach(c => addOption(courseSelect, c));
+
+    if (archived.length) {
+      const group = document.createElement("optgroup");
+      group.label = "Archived Classes";
+      archived.forEach(c => addOption(group, c));
+      courseSelect.appendChild(group);
+    }
   }
 
   function populateAssignmentDropdown(courseWork) {
