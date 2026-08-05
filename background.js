@@ -4,6 +4,7 @@ import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
 import { summarizeComments } from "./commentSummary.js";
 import { extractChecklist } from "./submissionChecker.js";
+import { extractChecklist, verifyChecklistAgainstFiles } from "./submissionChecker.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
@@ -253,4 +254,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     .catch((err) => sendResponse({ ok: false, error: err.message }));
   return true;
 }
+
+if (msg.type === "VERIFY_CHECKLIST") {
+  verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
+    .then((results) => sendResponse({ ok: true, results }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
+
 });
