@@ -2,7 +2,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("openPlanner")?.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
-  document.getElementById("openChecklist").addEventListener("click", () => {
+  document.getElementById("openChecklist")?.addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("checklist.html") });
   });
   document.getElementById('openFiles')?.addEventListener('click', () => {
