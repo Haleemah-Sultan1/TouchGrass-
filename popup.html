@@ -100,14 +100,13 @@
                 font-style: italic;
             }
 
-        /* ---- / Pinned posts---- */
+        /* ---- Posts on this page / Pinned posts (shared list styling) ---- */
         #pinned-section {
             margin-top: 14px;
             border-top: 1px solid #333;
             padding-top: 10px;
         }
-
-        #pinned-header {
+         #pinned-header {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -117,7 +116,7 @@
             margin-bottom: 6px;
         }
 
-        #pinned-list {
+        #stream-list, #pinned-list {
             display: flex;
             flex-direction: column;
             gap: 6px;
@@ -205,6 +204,80 @@
             font-size: 18px;
             margin-bottom: 4px;
         }
+
+        /* ---- Custom course picker (active classes + collapsible archived) ---- */
+        .course-picker {
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .course-picker-trigger {
+            width: 100%;
+            text-align: left;
+            margin: 0;
+        }
+
+        .course-picker-panel {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 20;
+            background: #1c1c1c;
+            border: 1px solid #444;
+            border-radius: 4px;
+            margin-top: 2px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .course-picker-panel.open {
+            display: block;
+        }
+
+        .course-option {
+            padding: 8px 10px;
+            font-size: 13px;
+            color: #eee;
+            cursor: pointer;
+        }
+
+        .course-option:hover {
+            background: #2a2a2a;
+        }
+
+        .course-option.selected {
+            background: #7F77DD;
+            color: #fff;
+        }
+
+        .course-archived-header {
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #aaa;
+            cursor: pointer;
+            border-top: 1px solid #333;
+            user-select: none;
+        }
+
+        .course-archived-header:hover {
+            background: #2a2a2a;
+        }
+
+        .archived-caret {
+            display: inline-block;
+            transition: transform 0.15s;
+            margin-right: 4px;
+        }
+
+        .archived-caret.open {
+            transform: rotate(90deg);
+        }
+
+        .course-archived-list .course-option {
+            padding-left: 22px;
+        }
     </style>
 </head>
 <body>
@@ -220,6 +293,7 @@
 
     <button id="applyFilters">Apply Filter</button>
 
+
     <div id="pinned-section">
       <div id="pinned-header">📌 Pinned <span id="pin-count"></span></div>
       <div id="pinned-list"><div class="empty-state">Loading…</div></div>
@@ -232,7 +306,17 @@
     <div id="authResult" style="font-size: 11px; color: #9f9; word-wrap: break-word;"></div>
 
     <label>Milestone 2 check</label>
-    <select id="courseSelect"><option value="">Run auth test first ↑</option></select>
+    <div class="course-picker" id="coursePicker">
+      <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Run auth test first ↑</button>
+      <div class="course-picker-panel" id="coursePickerPanel">
+        <div id="activeCourseList"></div>
+        <div class="course-archived-header" id="archivedHeader" style="display:none;">
+          <span class="archived-caret" id="archivedCaret">▸</span> Archived Classes
+        </div>
+        <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
+      </div>
+    </div>
+    <select id="courseSelect" style="display:none"><option value="">Run auth test first ↑</option></select>
     <button id="syncCourse">Sync Selected Course Data</button>
     <div id="syncResult" style="font-size: 11px; color: #9cf; word-wrap: break-word;"></div>
 

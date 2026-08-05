@@ -16,6 +16,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const testAuthBtn = document.getElementById("testAuth");
   const authResult = document.getElementById("authResult");
   const courseSelect = document.getElementById("courseSelect");
+  const coursePicker = document.getElementById("coursePicker");
+  const coursePickerTrigger = document.getElementById("coursePickerTrigger");
+  const coursePickerPanel = document.getElementById("coursePickerPanel");
+  const activeCourseList = document.getElementById("activeCourseList");
+  const archivedHeader = document.getElementById("archivedHeader");
+  const archivedCourseList = document.getElementById("archivedCourseList");
+  const archivedCaret = document.getElementById("archivedCaret");
   const syncBtn = document.getElementById("syncCourse");
   const syncResult = document.getElementById("syncResult");
   const assignmentSelect = document.getElementById("assignmentSelect");
@@ -33,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
     courseSelect.innerHTML = "";
     if (!courses || courses.length === 0) {
       courseSelect.innerHTML = '<option value="">No courses found</option>';
+      renderCoursePicker([], []);
       return;
     }
 
@@ -47,15 +55,74 @@ document.addEventListener("DOMContentLoaded", () => {
     const active = courses.filter(c => c.courseState !== "ARCHIVED");
     const archived = courses.filter(c => c.courseState === "ARCHIVED");
 
+    // Real select stays flat (no optgroup needed) - it's hidden now and
+    // only exists so the rest of the code can keep reading
+    // courseSelect.value / .selectedOptions[0] exactly as before.
     active.forEach(c => addOption(courseSelect, c));
+    archived.forEach(c => addOption(courseSelect, c));
 
-    if (archived.length) {
-      const group = document.createElement("optgroup");
-      group.label = "Archived Classes";
-      archived.forEach(c => addOption(group, c));
-      courseSelect.appendChild(group);
+    renderCoursePicker(active, archived);
+  }
+
+  // ---- Custom picker: active classes always visible, archived classes
+  // collapsed behind a header until clicked ----
+  function selectCourseInPicker(course) {
+    courseSelect.value = course.id;
+    coursePickerTrigger.textContent = course.name;
+    coursePickerPanel.classList.remove("open");
+    coursePickerPanel.querySelectorAll(".course-option").forEach(el => {
+      el.classList.toggle("selected", el.dataset.courseId === course.id);
+    });
+  }
+
+  function renderCoursePicker(active, archived) {
+    if (!coursePickerTrigger) return; // popup.html doesn't have this widget
+
+    activeCourseList.innerHTML = "";
+    active.forEach(c => {
+      const row = document.createElement("div");
+      row.className = "course-option";
+      row.textContent = c.name;
+      row.dataset.courseId = c.id;
+      row.addEventListener("click", () => selectCourseInPicker(c));
+      activeCourseList.appendChild(row);
+    });
+
+    archivedCourseList.innerHTML = "";
+    archived.forEach(c => {
+      const row = document.createElement("div");
+      row.className = "course-option";
+      row.textContent = c.name;
+      row.dataset.courseId = c.id;
+      row.addEventListener("click", () => selectCourseInPicker(c));
+      archivedCourseList.appendChild(row);
+    });
+
+    if (archivedHeader) archivedHeader.style.display = archived.length ? "" : "none";
+
+    if (active.length === 0 && archived.length === 0) {
+      coursePickerTrigger.textContent = "No courses found";
+    } else {
+      coursePickerTrigger.textContent = "Select a course…";
     }
   }
+
+  coursePickerTrigger?.addEventListener("click", () => {
+    coursePickerPanel.classList.toggle("open");
+  });
+
+  archivedHeader?.addEventListener("click", () => {
+    const isCollapsed = archivedCourseList.style.display === "none";
+    archivedCourseList.style.display = isCollapsed ? "block" : "none";
+    archivedCaret?.classList.toggle("open", isCollapsed);
+  });
+
+  // Click outside the picker closes the open panel
+  document.addEventListener("click", (e) => {
+    if (coursePicker && !coursePicker.contains(e.target)) {
+      coursePickerPanel?.classList.remove("open");
+    }
+  });
 
   function populateAssignmentDropdown(courseWork) {
     assignmentSelect.innerHTML = "";
