@@ -58,9 +58,45 @@ extractBtn.addEventListener("click", () => {
   });
 });
 
+newFunction();
+
+const verifyBtn = document.getElementById("verifyBtn");
+const verifyStatus = document.getElementById("verifyStatus");
+const verifyResults = document.getElementById("verifyResults");
+
+let currentChecklistItems = [];
+
+const TEXT_EXTENSIONS = [".cpp", ".c", ".h", ".hpp", ".py", ".js", ".java", ".cs", ".txt", ".md"];
+
+function newFunction() {
+  // fileInput.addEventListener("change", () => {
+  //   fileCheckResult.innerHTML = "";
+  //   const files = Array.from(fileInput.files);
+  //   if (files.length === 0) return;
+
+  //   if (!currentNamingConvention) {
+  //     fileCheckResult.textContent = "Extract a checklist with a naming convention first.";
+  //     return;
+  //   }
+
+  //   const results = checkFileNames(files, currentNamingConvention);
+  //   results.forEach((r) => {
+  //     const row = document.createElement("div");
+  //     row.textContent = r.valid ? `✅ ${r.name}` : `❌ ${r.name} — doesn't match the convention`;
+  //     fileCheckResult.appendChild(row);
+  //   });
+  // });
+
+  // Keeps the actual File object per row so we can re-download it under a
+// new name without asking the student to re-pick the file.
+let currentFilesByName = {};
+
 fileInput.addEventListener("change", () => {
   fileCheckResult.innerHTML = "";
   const files = Array.from(fileInput.files);
+  currentFilesByName = {};
+  files.forEach((f) => { currentFilesByName[f.name] = f; });
+
   if (files.length === 0) return;
 
   if (!currentNamingConvention) {
@@ -71,18 +107,43 @@ fileInput.addEventListener("change", () => {
   const results = checkFileNames(files, currentNamingConvention);
   results.forEach((r) => {
     const row = document.createElement("div");
-    row.textContent = r.valid ? `✅ ${r.name}` : `❌ ${r.name} — doesn't match the convention`;
+    row.style.marginBottom = "8px";
+
+    if (r.valid) {
+      row.textContent = `✅ ${r.name}`;
+      fileCheckResult.appendChild(row);
+      return;
+    }
+
+    // Mismatched — offer an editable suggested name + a download-as-copy button.
+    const suggested = currentNamingConvention.example || r.name;
+    row.innerHTML = `
+      <div>❌ ${r.name} — doesn't match the convention</div>
+      <input type="text" class="rename-input" value="${suggested}" style="width:250px;" />
+      <button class="rename-download-btn">⬇️ Download Renamed Copy</button>
+    `;
+
+    row.querySelector(".rename-download-btn").addEventListener("click", () => {
+      const newName = row.querySelector(".rename-input").value.trim();
+      if (!newName) return;
+
+      const originalFile = currentFilesByName[r.name];
+      const blob = new Blob([originalFile], { type: originalFile.type || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = newName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
     fileCheckResult.appendChild(row);
   });
 });
-
-const verifyBtn = document.getElementById("verifyBtn");
-const verifyStatus = document.getElementById("verifyStatus");
-const verifyResults = document.getElementById("verifyResults");
-
-let currentChecklistItems = [];
-
-const TEXT_EXTENSIONS = [".cpp", ".c", ".h", ".hpp", ".py", ".js", ".java", ".cs", ".txt", ".md"];
+}
 
 function isTextFile(file) {
   return TEXT_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
