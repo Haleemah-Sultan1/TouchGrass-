@@ -1,4 +1,10 @@
 document.addEventListener("DOMContentLoaded", () => {
+
+   document.getElementById("splash-screen")?.addEventListener("click", () => {
+    document.getElementById("splash-screen").style.display = "none";
+    document.getElementById("main-content").style.display = "block";
+  });
+  
   document.getElementById("openPlanner")?.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
