@@ -48,12 +48,12 @@ extractBtn.addEventListener("click", () => {
       return;
     }
     if (resp.ok) {
-      extractStatus.textContent = `✅ ${resp.result.checklistItems.length} checklist item(s) found`;
+      extractStatus.textContent = ` ${resp.result.checklistItems.length} checklist item(s) found`;
       currentNamingConvention = resp.result.namingConvention;
-        currentChecklistItems = resp.result.checklistItems; // add this line
+        currentChecklistItems = resp.result.checklistItems; 
       renderChecklist(resp.result.checklistItems, resp.result.namingConvention);
     } else {
-      extractStatus.textContent = `❌ Failed: ${resp.error}`;
+      extractStatus.textContent = ` Failed: ${resp.error}`;
     }
   });
 });
@@ -69,26 +69,7 @@ let currentChecklistItems = [];
 const TEXT_EXTENSIONS = [".cpp", ".c", ".h", ".hpp", ".py", ".js", ".java", ".cs", ".txt", ".md"];
 
 function newFunction() {
-  // fileInput.addEventListener("change", () => {
-  //   fileCheckResult.innerHTML = "";
-  //   const files = Array.from(fileInput.files);
-  //   if (files.length === 0) return;
-
-  //   if (!currentNamingConvention) {
-  //     fileCheckResult.textContent = "Extract a checklist with a naming convention first.";
-  //     return;
-  //   }
-
-  //   const results = checkFileNames(files, currentNamingConvention);
-  //   results.forEach((r) => {
-  //     const row = document.createElement("div");
-  //     row.textContent = r.valid ? `✅ ${r.name}` : `❌ ${r.name} — doesn't match the convention`;
-  //     fileCheckResult.appendChild(row);
-  //   });
-  // });
-
-  // Keeps the actual File object per row so we can re-download it under a
-// new name without asking the student to re-pick the file.
+ 
 let currentFilesByName = {};
 
 fileInput.addEventListener("change", () => {
@@ -110,17 +91,17 @@ fileInput.addEventListener("change", () => {
     row.style.marginBottom = "8px";
 
     if (r.valid) {
-      row.textContent = `✅ ${r.name}`;
+      row.textContent = ` ${r.name}`;
       fileCheckResult.appendChild(row);
       return;
     }
 
-    // Mismatched — offer an editable suggested name + a download-as-copy button.
+  
     const suggested = currentNamingConvention.example || r.name;
     row.innerHTML = `
-      <div>❌ ${r.name} — doesn't match the convention</div>
+      <div> ${r.name} — doesn't match the convention</div>
       <input type="text" class="rename-input" value="${suggested}" style="width:250px;" />
-      <button class="rename-download-btn">⬇️ Download Renamed Copy</button>
+      <button class="rename-download-btn">⬇ Download Renamed Copy</button>
     `;
 
     row.querySelector(".rename-download-btn").addEventListener("click", () => {
@@ -161,7 +142,7 @@ function readAsText(file) {
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]); // strip data: prefix
+    reader.onload = () => resolve(reader.result.split(",")[1]); 
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
@@ -170,7 +151,7 @@ function readAsBase64(file) {
 function renderVerifyResults(results) {
   verifyResults.innerHTML = "";
   results.forEach((r, i) => {
-    const icon = r.status === "met" ? "✅" : r.status === "not_met" ? "❌" : "❓";
+    const icon = r.status === "met" ? "" : r.status === "not_met" ? "" : "";
     const row = document.createElement("div");
     row.style.marginBottom = "6px";
     row.innerHTML = `
@@ -223,7 +204,7 @@ verifyBtn.addEventListener("click", async () => {
           verifyStatus.textContent = `Done — review the suggestions below, override anything that looks wrong.`;
           renderVerifyResults(resp.results);
         } else {
-          verifyStatus.textContent = `❌ Failed: ${resp.error}`;
+          verifyStatus.textContent = ` Failed: ${resp.error}`;
         }
       }
     );

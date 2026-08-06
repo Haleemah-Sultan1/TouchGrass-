@@ -40,7 +40,7 @@ function detectTaskType(item, topicName) {
   return "Assignments";
 }
 
-// ---------- Messages from popup / planner / content script ----------
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "TEST_AUTH") {
     fetchAllCoursesAnyState()
@@ -238,8 +238,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Milestone 7/8: comment summarization, triggered from content.js on a
-  // specific assignment/coursework detail page.
   if (msg.type === "SUMMARIZE_COMMENTS") {
     summarizeComments(msg.comments)
       .then((queries) => sendResponse({ ok: true, queries }))

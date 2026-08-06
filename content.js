@@ -14,7 +14,6 @@ function cleanupPreviousState() {
   scannedPosts = [];
 }
 
-// ==================== DARK MODE ====================
 
 function injectDarkModeStyles() {
   if (document.getElementById('tg-dark-styles')) return;
@@ -65,9 +64,6 @@ function injectDarkModeStyles() {
   document.head.appendChild(style);
 }
 
-// ---- Shadow DOM patch: injected <style> tags can't cross into shadow roots,
-// so GCR's Material Web Components (which render inside shadow DOM) never
-// pick up the dark theme unless we push the styles directly into each root. ----
 
 function injectStyleIntoRoot(root) {
   if (root.querySelector('#tg-dark-styles-shadow')) return;
@@ -88,7 +84,7 @@ function patchShadowRoots(node = document.body) {
   all.forEach(el => {
     if (el.shadowRoot) {
       injectStyleIntoRoot(el.shadowRoot);
-      patchShadowRoots(el.shadowRoot); // handle nested shadow roots
+      patchShadowRoots(el.shadowRoot); 
     }
   });
 }
@@ -118,15 +114,6 @@ function toggleDarkMode() {
   });
 }
 
-// ==================== PIN SUPPORT ====================
-// Two things live here:
-//  1. An on-page hover pin button, injected onto each stream card, so you
-//     can pin/unpin directly from the Classroom feed (restored).
-//  2. The same GET_STREAM_POSTS / SCROLL_TO_PIN messages the popup uses for
-//     its own "Posts on this page" / "Pinned" lists. Both UIs read and write
-//     the exact same chrome.storage.local "pinnedPosts" schema, so pinning
-//     from the page or from the popup always stay in sync.
-
 function makePinId(el) {
   const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
   if (streamId) return streamId;
@@ -139,9 +126,6 @@ function makePinId(el) {
   return 'tg_' + Math.abs(hash).toString(36);
 }
 
-// Classroom stream cards usually have a timestamp link like
-// /c/<classId>/p or a/<postId>/details buried inside them — a real,
-// navigable permalink to that individual post.
 function extractPinLink(el) {
   const anchors = Array.from(el.querySelectorAll('a[href*="/c/"]'));
   for (const a of anchors) {
@@ -160,7 +144,7 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
-// ---- On-page hover pin button ----
+
 
 function injectPinButtonStyles() {
   if (document.getElementById('tg-pin-btn-styles')) return;
@@ -219,8 +203,6 @@ function injectPinButtonStyles() {
   document.head.appendChild(style);
 }
 
-// Same storage read used by popup.js's pin list — kept in lockstep so a pin
-// toggled on the page shows up instantly in the popup, and vice versa.
 function getPinnedIdSet(classId, callback) {
   chrome.storage.local.get("pinnedPosts", (data) => {
     const pins = (data.pinnedPosts || {})[classId] || [];
@@ -228,8 +210,7 @@ function getPinnedIdSet(classId, callback) {
   });
 }
 
-// Same storage write used by popup.js's setPinned — identical shape
-// ({ id, snippet, url, pinnedAt }) so both UIs stay compatible.
+
 function setPinned(classId, post, shouldBePinned, callback) {
   chrome.storage.local.get("pinnedPosts", (data) => {
     const all = data.pinnedPosts || {};
@@ -246,10 +227,6 @@ function setPinned(classId, post, shouldBePinned, callback) {
   });
 }
 
-// Adds (or refreshes) a hover pin button on every currently-scanned stream
-// card. Safe to call repeatedly — it reuses an existing button per card
-// instead of stacking duplicates, and only touches its own tiny corner of
-// each card (position: absolute), so nothing else on the card shifts.
 function injectPinButtons(classId) {
   if (!classId) return;
   injectPinButtonStyles();
@@ -293,15 +270,12 @@ function injectPinButtons(classId) {
   });
 }
 
-// If a pin is added/removed from the popup while this tab is open, refresh
-// the on-page buttons so the two UIs never fall out of sync.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.pinnedPosts && currentClassId) {
     injectPinButtons(currentClassId);
   }
 });
 
-// ==================== FILE COLLECTION (PDF attachments) ====================
 
 function hashStringForFiles(str) {
   let hash = 0;
@@ -350,8 +324,6 @@ function scanAttachmentsInPost(postEl) {
 
   return files;
 }
-// Coursework/assignment detail pages aren't a list of "cards" like the
-// stream — it's one page, so scan the whole main area instead.
 function collectFilesFromCourseworkPage(classId) {
   const mainArea = document.querySelector('main') || document.body;
   const files = scanAttachmentsInPost(mainArea);
@@ -374,7 +346,7 @@ function collectFilesForClass(classId) {
     const files = scanAttachmentsInPost(postEl);
     if (files.length === 0) return;
 
-    const announcementUrl = extractPinLink(postEl); // reuses your existing helper
+    const announcementUrl = extractPinLink(postEl); 
     const snippet = postEl.innerText?.trim().replace(/\s+/g, ' ').slice(0, 120) || '';
 
     files.forEach(f => {
@@ -392,8 +364,6 @@ function collectFilesForClass(classId) {
   return collected;
 }
 
-// Merges by id so re-scanning (e.g. on every watchFeed cycle) doesn't
-// duplicate files already known from a previous scan.
 function saveCollectedFiles(classId, files) {
   chrome.storage.local.get("classFiles", (data) => {
     const all = data.classFiles || {};
@@ -404,7 +374,6 @@ function saveCollectedFiles(classId, files) {
     chrome.storage.local.set({ classFiles: all });
   });
 }
-// ==================== EXISTING FUNCTIONS (UNCHANGED) ====================
 
 function getClassId() {
   const match = location.pathname.match(/\/(c|r)\/([^\/]+)/);
@@ -571,7 +540,7 @@ function watchFeed(classId) {
   feedObserver = new MutationObserver(() => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      scanStreamPosts(); // keep the list fresh for GET_STREAM_POSTS
+      scanStreamPosts(); 
       saveCollectedFiles(classId, collectFilesForClass(classId));  
       injectPinButtons(classId);
       if (document.body.classList.contains('tg-dark')) {
@@ -604,11 +573,6 @@ function watchFeed(classId) {
   feedObserver.observe(mainArea, { childList: true, subtree: true });
 }
 
-// ==================== MILESTONE 7: COMMENT SUMMARIZATION ====================
-// Everything in this section is new and additive. It only activates on a
-// specific coursework detail page (/c/<classId>/a/<courseworkId>/details)
-// and does not touch any of the stream/dark-mode/people logic above.
-
 function isCourseworkDetailPage() {
   return /\/c\/[^\/]+\/(a|m|p)\/[^\/]+\/details/.test(location.pathname);
 }
@@ -618,9 +582,6 @@ function getCourseworkIdFromUrl() {
   return match ? match[1] : null;
 }
 
-// Kept for potential future use, but scrapeClassComments() below no longer
-// relies on this — DOM-structure guessing proved unreliable, since the
-// comments list isn't a close ancestor of the "N class comments" heading.
 function findClassCommentsContainer() {
   const candidates = Array.from(document.querySelectorAll('div, span, h2, h3'));
   const heading = candidates.find(el =>
@@ -640,15 +601,6 @@ function findClassCommentsContainer() {
   return heading.parentElement || heading;
 }
 
-// Scrapes {author, dateStr, text} for every class comment by working off
-// the FULL PAGE's flattened text (main.innerText) rather than trying to
-// locate a specific DOM container. The "N class comments" heading marks
-// where to start reading from — everything before it (assignment
-// description, "Your work" panel, etc.) is discarded, and everything after
-// is parsed for "Name • Date" comment headers, stopping at the
-// "Add class comment..." input. This is more robust than DOM-structure
-// guessing since innerText reflects everything rendered regardless of how
-// or where it's nested in the tree.
 function scrapeClassComments() {
   const fullText = (document.querySelector('main') || document.body).innerText || '';
   const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -664,10 +616,8 @@ function scrapeClassComments() {
   console.log('TouchGrass DEBUG — lines after "class comments" heading:');
   relevantLines.slice(0, 30).forEach((l, i) => console.log(`  [${i}] "${l}"`));
 
-  // "Name • Apr 20", "Name • May 2", "Name • Just now", "Name • Edited May 2"
   const headerRegex = /^(.{1,60}?)\s*•\s*((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(,\s*\d{4})?|Just now|Yesterday|Edited\s+.+)$/i;
-  // Stop parsing once we hit the "Add class comment..." input placeholder,
-  // which marks the end of the comment list.
+ 
   const stopRegex = /^add class comment/i;
 
   const rawEntries = [];
@@ -701,9 +651,6 @@ function scrapeClassComments() {
   return comments;
 }
 
-// Tags each comment's author using the SAME classPeople storage the
-// existing People-page scraper already populates (keyed by the same
-// classId getClassId() returns) — no new roster fetching needed.
 function tagCommentsWithRoles(comments, classId, callback) {
   chrome.storage.local.get("classPeople", (data) => {
     const known = (data.classPeople || {})[classId] || { teachers: [], students: [] };
@@ -718,7 +665,6 @@ function tagCommentsWithRoles(comments, classId, callback) {
   });
 }
 
-// ---- Injected UI: floating button + sliding sidebar panel ----
 
 function injectCommentSummaryStyles() {
   if (document.getElementById('tg-comment-summary-styles')) return;
@@ -932,7 +878,6 @@ function injectCommentSummaryButton(classId, courseworkId) {
   document.body.appendChild(fab);
 }
 
-// ==================== INIT ====================
 
 function handlePageContext() {
   cleanupPreviousState();
@@ -948,7 +893,7 @@ function handlePageContext() {
     const courseworkId = getCourseworkIdFromUrl();
     setTimeout(() => {
       injectCommentSummaryButton(classId, courseworkId);
-      saveCollectedFiles(classId, collectFilesFromCourseworkPage(classId));   // ← add this line
+      saveCollectedFiles(classId, collectFilesFromCourseworkPage(classId));   
     }, 800);
   } else {
     loadDarkMode();
@@ -979,7 +924,6 @@ setInterval(() => {
   }
 }, 800);
 
-// ==================== MESSAGE LISTENER ====================
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SET_FILTER') {
@@ -992,8 +936,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ classId: currentClassId, postsFound: scannedPosts.length });
     return true;
   }
-  // Popup asks for everything currently visible on the page, so it can
-  // offer a pin toggle for each one — no button is ever injected here.
+  
   if (msg.type === 'GET_STREAM_POSTS') {
     scanStreamPosts();
     const posts = scannedPosts.map(({ el }) => ({
@@ -1004,8 +947,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ posts });
     return true;
   }
-  // Fallback for pins that never captured a real permalink (rare) — only
-  // used when the popup can't just navigate straight to pin.url.
+ 
   if (msg.type === 'SCROLL_TO_PIN') {
     scanStreamPosts();
     const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);

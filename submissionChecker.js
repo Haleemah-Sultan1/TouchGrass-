@@ -1,8 +1,4 @@
-// submissionChecker.js
-// Feature: student pastes an assignment's instructions text. AI extracts
-// (1) a general pre-submission checklist and (2) a file-naming convention
-// as both a plain description AND a regex pattern, so we can validate
-// actual uploaded file names locally without another AI call per file.
+ 
 
 const BACKEND_URL = "https://touchgrass-backend.touchgrass.workers.dev";
 
@@ -43,9 +39,7 @@ function parseChecklistResponse(rawText) {
 
   let namingConvention = null;
   if (parsed.namingConvention && parsed.namingConvention.regexPattern) {
-    // Sanity-check the regex compiles before we ever hand it to the UI —
-    // a broken pattern from the model should fail loudly here, not later
-    // when the student tries to check a file.
+   
     try {
       new RegExp(parsed.namingConvention.regexPattern);
       namingConvention = {
@@ -87,8 +81,6 @@ export async function extractChecklist(instructionsText) {
   return parseChecklistResponse(data.result);
 }
 
-// Pure local check — no network call. Runs against the File objects the
-// student picks in the <input type="file"> on the checklist page.
 export function checkFileNames(files, namingConvention) {
   if (!namingConvention) return [];
   let regex;
@@ -100,7 +92,6 @@ export function checkFileNames(files, namingConvention) {
   return files.map((f) => ({ name: f.name, valid: regex.test(f.name) }));
 }
 
-// ... keep everything already in submissionChecker.js above this ...
 
 function buildVerificationPrompt(checklistItems, textFileBlocks) {
   const itemList = checklistItems.map((item, i) => `${i + 1}. ${item}`).join("\n");
@@ -142,8 +133,7 @@ function parseVerificationResponse(rawText, checklistItems) {
   const byItem = {};
   (parsed.results || []).forEach((r) => { byItem[r.item] = r; });
 
-  // Always return one row per original checklist item, in original order —
-  // if the model skipped one, it shows as unclear rather than disappearing.
+ //  
   return checklistItems.map((item) => {
     const match = byItem[item];
     return {
