@@ -3,6 +3,53 @@
 <head>
   <meta charset="UTF-8" />
   <title>TouchGrass — Submission Checker</title>
+
+   <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: sans-serif;
+      padding: 20px;
+      max-width: 700px;
+    }
+    h2, h3 { color: #fff; }
+    textarea, input[type="text"] {
+      background: #1c1c1c;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 8px;
+      font-family: inherit;
+    }
+    input[type="file"] { color: #eee; }
+    button {
+      background: #7F77DD;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 6px;
+    }
+    button:hover { background: #6a63c4; }
+    #checklistBox label {
+      display: block;
+      margin: 6px 0;
+      color: #ddd;
+    }
+    #extractStatus, #verifyStatus, #fileCheckResult, #verifyResults {
+      color: #9cf;
+      font-size: 13px;
+    }
+    .rename-input {
+      background: #1c1c1c;
+      color: #eee;
+      border: 1px solid #444;
+    }
+  </style>
+  
+
 </head>
 <body>
   <h2>Submission Checker</h2>
