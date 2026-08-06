@@ -279,33 +279,44 @@
             padding-left: 22px;
         }
 
-        /* ---- Splash screen ---- */
-        #splash-screen {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 260px;
-            cursor: pointer;
-            text-align: center;
-        }
+      #splash-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 260px;
+    cursor: pointer;
+    text-align: center;
+}
 
-        #splash-screen img {
-            width: 72px;
-            height: 72px;
-            margin-bottom: 12px;
-        }
+#splash-screen img {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 14px;
+}
 
-        #splash-tap-hint {
-            font-size: 11px;
-            color: #666;
-            margin-top: 4px;
-        }
+#splash-title {
+    font-family: 'Comic Sans MS', 'Marker Felt', 'Segoe Print', cursive, sans-serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: #7F77DD;
+    letter-spacing: 1px;
+    transform: rotate(-2deg);
+    text-shadow: 2px 2px 0px rgba(127,119,221,0.25);
+}
+
+#splash-tap-hint {
+    font-size: 11px;
+    color: #666;
+    margin-top: 8px;
+}
+
     </style>
 </head>
 <body>
     <div id="splash-screen">
       <img src="icons/icon48.png" alt="TouchGrass" />
+       <div id="splash-title">TOUCH SOME GRASS 🌱</div>
       <div id="splash-tap-hint">tap to open</div>
     </div>
 
