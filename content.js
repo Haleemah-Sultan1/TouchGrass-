@@ -23,25 +23,15 @@ if (!window.__tgLoaded) {
     const style = document.createElement('style');
     style.id = 'tg-dark-styles';
     style.textContent = `
-      body.tg-dark,
-      body.tg-dark [data-is-archived="false"],
-      body.tg-dark main,
-      body.tg-dark header,
-      body.tg-dark nav,
-      body.tg-dark aside,
-      body.tg-dark footer,
-      body.tg-dark div,
-      body.tg-dark section,
-      body.tg-dark article,
-      body.tg-dark li,
-      body.tg-dark ul,
-      body.tg-dark form {
+      body.tg-dark * {
         background-color: #0f0f0f !important;
         border-color: #222 !important;
-      }
-      body.tg-dark * {
         color: #e8e8e8 !important;
         box-shadow: none !important;
+      }
+      body.tg-dark *::before,
+      body.tg-dark *::after {
+        background-color: #0f0f0f !important;
       }
       body.tg-dark a {
         color: #8ab4f8 !important;
@@ -55,6 +45,11 @@ if (!window.__tgLoaded) {
       }
       body.tg-dark img {
         opacity: 0.88;
+      }
+      body.tg-dark svg,
+      body.tg-dark path {
+        fill: #e8e8e8 !important;
+        background-color: transparent !important;
       }
       body.tg-dark [data-material-css-shimmer],
       body.tg-dark .shimmer {
@@ -73,13 +68,19 @@ if (!window.__tgLoaded) {
     const style = document.createElement('style');
     style.id = 'tg-dark-styles-shadow';
     style.textContent = `
-      * { color: #e8e8e8 !important; box-shadow: none !important; }
-      div, section, article, li, ul, form, header, nav, aside, footer, main, svg {
+      * {
+        color: #e8e8e8 !important;
+        box-shadow: none !important;
         background-color: #0f0f0f !important;
         border-color: #222 !important;
       }
-      path, svg {
+      *::before,
+      *::after {
+        background-color: #0f0f0f !important;
+      }
+      svg, path {
         fill: #e8e8e8 !important;
+        background-color: transparent !important;
       }
     `;
     root.appendChild(style);
@@ -881,6 +882,12 @@ if (!window.__tgLoaded) {
 
   function handlePageContext() {
     cleanupPreviousState();
+
+    // Dark mode should apply on ANY classroom.google.com page, not just
+    // inside a specific class — so this runs unconditionally, before the
+    // classId check below.
+    loadDarkMode();
+
     const classId = getClassId();
     if (!classId) return;
     currentClassId = classId;
@@ -896,7 +903,6 @@ if (!window.__tgLoaded) {
         saveCollectedFiles(classId, collectFilesFromCourseworkPage(classId));
       }, 800);
     } else {
-      loadDarkMode();
       let attempts = 0;
       const tryInit = () => {
         attempts++;
