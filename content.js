@@ -71,9 +71,12 @@ function injectStyleIntoRoot(root) {
   style.id = 'tg-dark-styles-shadow';
   style.textContent = `
     * { color: #e8e8e8 !important; box-shadow: none !important; }
-    div, section, article, li, ul, form, header, nav, aside, footer, main {
+    div, section, article, li, ul, form, header, nav, aside, footer, main, svg {
       background-color: #0f0f0f !important;
       border-color: #222 !important;
+    }
+    path, svg {
+      fill: #e8e8e8 !important;
     }
   `;
   root.appendChild(style);
