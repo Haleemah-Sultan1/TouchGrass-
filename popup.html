@@ -305,13 +305,14 @@
 
     <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
 
-    <label>Milestone 1 check</label>
-    <button id="testAuth">Test Classroom API Auth</button>
-    <div id="authResult" style="font-size: 11px; color: #9f9; word-wrap: break-word;"></div>
+    <div id="connectPrompt" style="display:none; background:#3a2a1a; border:1px solid #a76; border-radius:4px; padding:10px; margin-bottom:10px; font-size:12px;">
+        Couldn't connect to Google Classroom automatically.
+        <button id="connectBtn" style="margin-top:8px;">Connect Google Classroom</button>
+    </div>
 
-    <label>Milestone 2 check</label>
+    <label>Course</label>
     <div class="course-picker" id="coursePicker">
-        <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Run auth test first</button>
+        <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Loading courses...</button>
         <div class="course-picker-panel" id="coursePickerPanel">
             <div id="activeCourseList"></div>
             <div class="course-archived-header" id="archivedHeader" style="display:none;">
@@ -320,16 +321,15 @@
             <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
         </div>
     </div>
-    <select id="courseSelect" style="display:none"><option value="">Run auth test first</option></select>
-    <button id="syncCourse">Sync Selected Course Data</button>
-    <div id="syncResult" style="font-size: 11px; color: #9cf; word-wrap: break-word;"></div>
+    <select id="courseSelect" style="display:none"><option value="">Loading courses...</option></select>
+    <div id="courseSyncStatus" style="font-size: 11px; color: #9cf; word-wrap: break-word; margin-bottom: 8px;"></div>
 
-    <label>Milestone 4 check: Difficulty Estimation</label>
-    <select id="assignmentSelect"><option value="">Sync a course first</option></select>
+    <label>Difficulty Estimation</label>
+    <select id="assignmentSelect"><option value="">Select a course first</option></select>
     <button id="estimateBtn">Estimate Difficulty</button>
     <div id="difficultyResult" style="font-size: 12px; color: #fc9; word-wrap: break-word;"></div>
 
-    <label>Milestone 5 check: Topic & Concept Breakdown (per question)</label>
+    <label>Topic &amp; Concept Breakdown (per question)</label>
     <button id="analyzeTopicsBtn">Analyze Question-by-Question</button>
     <button id="useManualTopicsBtn" style="background:#555;">Use My Own Topic List Instead</button>
     <div id="manualTopicsBox">
