@@ -2,6 +2,11 @@ if (!window.__tgLoaded) {
   window.__tgLoaded = true;
 
   console.log("TouchGrass GCR loaded");
+  // Auto-sync trigger: fires once per page load (Classroom is a SPA, so this
+// runs once per full navigation, not on every internal route change).
+// Silent — background.js checks auth itself and does nothing if not
+// already authorized, so this never interrupts browsing with a login popup.
+chrome.runtime.sendMessage({ type: 'AUTO_SYNC_ALL' }, () => { void chrome.runtime.lastError; });
 
   let currentClassId = null;
   let currentPath = location.pathname;
