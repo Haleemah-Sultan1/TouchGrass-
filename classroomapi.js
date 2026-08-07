@@ -1,6 +1,12 @@
+// classroomapi.js
+// Shared data layer: auth, all Google Classroom API calls, topic grouping,
+// submission status, and caching. Every feature module reads from the
+// cache this file writes — never call fetch() against the Classroom API
+// directly from feature code.
 
-const CACHE_MAX_AGE_MS = 15 * 60 * 1000; 
+const CACHE_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 
+// ---------- Auth ----------
 export function getAuthToken(interactive = true) {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive }, (token) => {
@@ -19,6 +25,20 @@ export function clearCachedToken(token) {
   });
 }
 
+// Checks whether the student is ALREADY authorized, without ever showing
+// a login popup. Used to decide whether it's safe to auto-sync silently
+// in the background (e.g. on every Classroom page load) — if this returns
+// false, we skip auto-sync entirely rather than surprising the student
+// with an unexpected OAuth window while they're just browsing.
+export function isAuthorizedSilently() {
+  return new Promise((resolve) => {
+    chrome.identity.getAuthToken({ interactive: false }, (token) => {
+      resolve(!chrome.runtime.lastError && !!token);
+    });
+  });
+}
+
+// ---------- Low-level fetch helper with automatic 401 retry ----------
 async function apiFetch(url) {
   let token = await getAuthToken(true);
   let res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -37,6 +57,9 @@ async function apiFetch(url) {
   return res.json();
 }
 
+// Google's API paginates results (nextPageToken). This walks all pages
+// and deduplicates by item id, so callers always get the complete,
+// non-duplicated list in one call.
 async function apiFetchAllPages(baseUrl, listKey) {
   const seenIds = new Set();
   const items = [];
@@ -51,7 +74,7 @@ async function apiFetchAllPages(baseUrl, listKey) {
 
     for (const item of pageItems) {
       if (item.id && seenIds.has(item.id)) {
-        console.warn(` Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
+        console.warn(`⚠️ Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
         continue;
       }
       if (item.id) seenIds.add(item.id);
@@ -61,10 +84,11 @@ async function apiFetchAllPages(baseUrl, listKey) {
     pageToken = data.nextPageToken || null;
   } while (pageToken);
 
-  console.log(` ${listKey}: fetched ${pageCount} page(s), ${items.length} unique item(s)`);
+  console.log(`📄 ${listKey}: fetched ${pageCount} page(s), ${items.length} unique item(s)`);
   return items;
 }
 
+// ---------- Individual endpoint fetchers ----------
 export async function fetchCourses() {
   return apiFetchAllPages(
     "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE",
@@ -72,6 +96,9 @@ export async function fetchCourses() {
   );
 }
 
+// Used only for name-resolution fallback — includes archived courses too,
+// since a course can still have synced data/cached tasks even if it's
+// since been archived on Classroom's side.
 export async function fetchAllCoursesAnyState() {
   return apiFetchAllPages(
     "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE&courseStates=ARCHIVED",
@@ -100,6 +127,10 @@ export async function fetchCourseWorkMaterials(courseId) {
   );
 }
 
+// Announcements are the actual "stream posts" the teacher-filter feature
+// cares about — fetching these directly means we get the true, complete
+// list (and each one's creatorUserId) with no dependency on how much of
+// the DOM Classroom has lazily rendered.
 export async function fetchAnnouncements(courseId) {
   return apiFetchAllPages(
     `https://classroom.googleapis.com/v1/courses/${courseId}/announcements?`,
@@ -122,6 +153,9 @@ export async function fetchSubmissions(courseId, courseWorkId) {
   );
 }
 
+// ---------- Content grouping ----------
+// Groups courseWork + courseWorkMaterials by their REAL Classroom topic —
+// the exact same grouping Classroom shows on the Classwork page.
 export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
   const topicNameById = {};
   (topics || []).forEach((t) => { topicNameById[t.topicId] = t.name || "(unnamed topic)"; });
@@ -141,6 +175,7 @@ export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
   return groups;
 }
 
+// ---------- Debug: print exact titles per topic group ----------
 export function debugPrintGroups(groups) {
   console.log("──── TOPIC GROUPING DEBUG ────");
   Object.entries(groups).forEach(([topicName, items]) => {
@@ -152,6 +187,9 @@ export function debugPrintGroups(groups) {
   console.log("───────────────────────────────");
 }
 
+// Maps each announcement's creatorUserId to a teacher display name using
+// the roster, so filtering by teacher NAME (what the popup dropdown shows)
+// works against the real API data instead of scraped DOM text.
 function attachTeacherNames(announcements, teachers) {
   const nameById = {};
   (teachers || []).forEach((t) => {
@@ -163,6 +201,7 @@ function attachTeacherNames(announcements, teachers) {
   }));
 }
 
+// ---------- Cache read/write ----------
 function getCacheKey(courseId) {
   return `classroomData_${courseId}`;
 }
@@ -185,6 +224,8 @@ function setCachedCourseData(courseId, payload) {
   });
 }
 
+// Returns all cached course data across every course the student has synced —
+// needed so the study planner can build a schedule spanning multiple classes.
 export function getAllCachedCourses() {
   return new Promise((resolve) => {
     chrome.storage.local.get(null, (allData) => {
@@ -196,6 +237,13 @@ export function getAllCachedCourses() {
   });
 }
 
+// ---------- File attachment extraction (PDF/PPT) ----------
+// Detects a file's type from its title extension, falling back to the
+// alternateLink's domain for native Google Workspace files (Docs, Sheets,
+// Slides, Forms) which have no file extension in their title at all.
+// Returns an uppercase type label - not restricted to a fixed list, so
+// any file type a student attaches (png, docx, zip, xlsx, etc.) is
+// captured automatically instead of needing to be added by hand.
 function detectFileType(title, alternateLink) {
   if (/docs\.google\.com\/document\//.test(alternateLink || '')) return 'DOC';
   if (/docs\.google\.com\/presentation\//.test(alternateLink || '')) return 'PPTX';
@@ -237,20 +285,24 @@ async function syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMate
     });
   });
 
-  console.log(` Synced ${files.length} file attachment(s) into classFiles[${classId}] for course ${courseId}`);
+  console.log(`📎 Synced ${files.length} file attachment(s) into classFiles[${classId}] for course ${courseId}`);
   return files;
 }
 
+// ---------- Main entry point: sync everything for one course ----------
+// courseName is passed in from the caller (which already has it from the
+// course dropdown) since the Classroom API's per-course endpoints don't
+// return the course's own display name.
 export async function syncCourseData(courseId, courseName, { force = false } = {}) {
   if (!force) {
     const cached = await getCachedCourseData(courseId);
     if (cached) {
-      console.log(` Using cached data for course ${courseId} (age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s)`);
+      console.log(`📦 Using cached data for course ${courseId} (age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s)`);
       return cached;
     }
   }
 
-  console.log(` Fetching fresh data for course ${courseId}...`);
+  console.log(`🔄 Fetching fresh data for course ${courseId}...`);
   const [topics, courseWork, courseWorkMaterials, roster, announcementsRaw] = await Promise.all([
     fetchTopics(courseId),
     fetchCourseWork(courseId),
@@ -259,12 +311,13 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
     fetchAnnouncements(courseId),
   ]);
 
+  // Fetch submission status per assignment so we know what's already done.
   const submissionResults = await Promise.all(
     courseWork.map((cw) => fetchSubmissions(courseId, cw.id).catch(() => []))
   );
   courseWork.forEach((cw, i) => {
-    const sub = submissionResults[i]?.[0]; 
-    cw.submissionState = sub?.state || "UNKNOWN"; 
+    const sub = submissionResults[i]?.[0]; // "me" scope returns just this student's own submission
+    cw.submissionState = sub?.state || "UNKNOWN"; // TURNED_IN, RETURNED, CREATED, or UNKNOWN
   });
 
   const announcements = attachTeacherNames(announcementsRaw, roster.teachers);
@@ -278,7 +331,7 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   await syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMaterials, announcements);
 
   const totalItems = courseWork.length + courseWorkMaterials.length;
-  console.log(` Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
+  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
   return saved;
