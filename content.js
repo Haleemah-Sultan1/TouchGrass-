@@ -1,5 +1,5 @@
 console.log("TouchGrass GCR loaded");
-
+chrome.runtime.sendMessage({ type: 'AUTO_SYNC_ALL' }, () => { void chrome.runtime.lastError; });
 let currentClassId = null;
 let currentPath = location.pathname;
 let scannedPosts = [];
@@ -357,7 +357,7 @@ function injectPinButtons(classId) {
           const nowPinned = !btn.classList.contains('tg-pinned');
           setPinned(classId, post, nowPinned, () => {
             btn.classList.toggle('tg-pinned', nowPinned);
-            btn.textContent = nowPinned ? '📍' : '📌';
+            btn.textContent = nowPinned ? '●' : '○';
             btn.title = nowPinned ? 'Unpin this post' : 'Pin this post';
             el.classList.toggle('tg-card-pinned', nowPinned);
           });
@@ -365,7 +365,7 @@ function injectPinButtons(classId) {
       }
 
       btn.classList.toggle('tg-pinned', isPinned);
-      btn.textContent = isPinned ? '📍' : '📌';
+      btn.textContent = isPinned ? '●' : '○';
       btn.title = isPinned ? 'Unpin this post' : 'Pin this post';
       el.classList.toggle('tg-card-pinned', isPinned);
     });
@@ -931,7 +931,7 @@ function getOrCreateSummaryPanel() {
     panel.id = 'tg-summary-panel';
     panel.innerHTML = `
       <div id="tg-summary-header">
-        <h2>💬 Comment Summary</h2>
+        <h2>Comment Summary</h2>
         <button id="tg-summary-close">✕</button>
       </div>
       <div id="tg-summary-body"></div>
@@ -993,7 +993,7 @@ function runCommentSummary(classId, courseworkId) {
         if (resp && resp.ok) {
           renderQueryCards(resp.queries);
         } else {
-          body.innerHTML = `<div id="tg-summary-status">❌ Failed: ${escapeHtml(resp?.error || 'unknown error')}</div>`;
+          body.innerHTML = `<div id="tg-summary-status">Failed: ${escapeHtml(resp?.error || 'unknown error')}</div>`;
         }
       }
     );
@@ -1006,7 +1006,7 @@ function injectCommentSummaryButton(classId, courseworkId) {
 
   const fab = document.createElement('button');
   fab.id = 'tg-summary-fab';
-  fab.textContent = '💬 Summarize Comments';
+  fab.textContent = 'Summarize Comments';
   fab.addEventListener('click', () => runCommentSummary(classId, courseworkId));
   document.body.appendChild(fab);
 }

@@ -1,8 +1,28 @@
 document.addEventListener("DOMContentLoaded", () => {
+  // Auto-sync trigger: fires every time the popup is opened. Handles
+  // authorization (once, automatically, the very first time ever) and
+  // re-syncs every course silently after that. If authorization genuinely
+  // isn't possible right now (e.g. the one-time prompt was dismissed),
+  // show the "Connect" fallback instead of leaving the student stuck.
+  chrome.runtime.sendMessage({ type: 'AUTO_SYNC_ALL' }, (result) => {
+    if (chrome.runtime.lastError) return;
+    const connectPromptEl = document.getElementById("connectPrompt");
+    if (result?.ok) {
+      if (connectPromptEl) connectPromptEl.style.display = "none";
+      chrome.storage.local.get("knownCourses", (data) => {
+        if (data.knownCourses) populateCourseDropdown(data.knownCourses);
+      });
+    } else if (result?.reason === "not_authorized") {
+      if (connectPromptEl) connectPromptEl.style.display = "block";
+    }
+  });
+
   document.getElementById("openPlanner")?.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
-
+  document.getElementById("openChecklist")?.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("checklist.html") });
+  });
   document.getElementById('openFiles')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const match = (tabs[0]?.url || '').match(/\/(c|r)\/([^\/]+)/);
@@ -13,8 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const teacherFilter = document.getElementById("teacherFilter");
   const applyBtn = document.getElementById("applyFilters");
   const debugBox = document.getElementById("debugBox");
-  const testAuthBtn = document.getElementById("testAuth");
-  const authResult = document.getElementById("authResult");
+  const connectPrompt = document.getElementById("connectPrompt");
+  const connectBtn = document.getElementById("connectBtn");
   const courseSelect = document.getElementById("courseSelect");
   const coursePicker = document.getElementById("coursePicker");
   const coursePickerTrigger = document.getElementById("coursePickerTrigger");
@@ -23,8 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const archivedHeader = document.getElementById("archivedHeader");
   const archivedCourseList = document.getElementById("archivedCourseList");
   const archivedCaret = document.getElementById("archivedCaret");
-  const syncBtn = document.getElementById("syncCourse");
-  const syncResult = document.getElementById("syncResult");
+  const courseSyncStatus = document.getElementById("courseSyncStatus");
   const assignmentSelect = document.getElementById("assignmentSelect");
   const estimateBtn = document.getElementById("estimateBtn");
   const difficultyResult = document.getElementById("difficultyResult");
@@ -66,12 +85,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ---- Custom picker: active classes always visible, archived classes
   // collapsed behind a header until clicked ----
+  // Selecting a course now triggers its sync automatically — no separate
+  // "Sync" button. The status line below the picker shows progress.
   function selectCourseInPicker(course) {
     courseSelect.value = course.id;
     coursePickerTrigger.textContent = course.name;
     coursePickerPanel.classList.remove("open");
     coursePickerPanel.querySelectorAll(".course-option").forEach(el => {
       el.classList.toggle("selected", el.dataset.courseId === course.id);
+    });
+    syncSelectedCourse(course.id, course.name);
+  }
+
+  function syncSelectedCourse(courseId, courseName) {
+    if (courseSyncStatus) courseSyncStatus.textContent = "Syncing the course...";
+    assignmentSelect.innerHTML = '<option value="">Syncing...</option>';
+
+    chrome.runtime.sendMessage({ type: "SYNC_COURSE_DATA", courseId, courseName }, (resp) => {
+      if (chrome.runtime.lastError) {
+        if (courseSyncStatus) courseSyncStatus.textContent = `Error: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      if (resp.ok) {
+        const groups = resp.data.groups;
+        const totalItems = resp.data.courseWork.length + resp.data.courseWorkMaterials.length;
+        const breakdown = Object.entries(groups)
+          .map(([name, items]) => `${name}: ${items.length}`)
+          .join(" | ");
+        if (courseSyncStatus) courseSyncStatus.textContent = `Synced — ${totalItems} item(s): ${breakdown}`;
+        populateAssignmentDropdown(resp.data.courseWork);
+      } else {
+        if (courseSyncStatus) courseSyncStatus.textContent = `Failed to sync: ${resp.error}`;
+      }
     });
   }
 
@@ -103,7 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (active.length === 0 && archived.length === 0) {
       coursePickerTrigger.textContent = "No courses found";
     } else {
-      coursePickerTrigger.textContent = "Select a course…";
+      coursePickerTrigger.textContent = "Select a course...";
     }
   }
 
@@ -162,7 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const courseId = courseSelect.value;
     const itemId = assignmentSelect.value;
     if (!courseId || !itemId) {
-      topicStatus.textContent = "Sync a course and pick an assignment first.";
+      topicStatus.textContent = "Select a course and pick an assignment first.";
       return;
     }
     topicStatus.textContent = "Reading attached files and breaking down each question... (this may take longer)";
@@ -180,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
         topicStatus.textContent = "This course has no synced topics.";
         manualTopicsBox.style.display = "block";
       } else {
-        topicStatus.textContent = `❌ Failed: ${resp.error}`;
+        topicStatus.textContent = `Failed: ${resp.error}`;
       }
     });
   }
@@ -189,48 +234,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (data.knownCourses) populateCourseDropdown(data.knownCourses);
   });
 
-  testAuthBtn.addEventListener("click", () => {
-    authResult.textContent = "Requesting token + fetching courses...";
-    chrome.runtime.sendMessage({ type: "TEST_AUTH" }, (resp) => {
-      if (chrome.runtime.lastError) {
-        authResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
-        return;
+  connectBtn?.addEventListener("click", () => {
+    connectBtn.textContent = "Connecting...";
+    connectBtn.disabled = true;
+    chrome.runtime.sendMessage({ type: "FORCE_INTERACTIVE_AUTH" }, (resp) => {
+      connectBtn.disabled = false;
+      connectBtn.textContent = "Connect Google Classroom";
+      if (chrome.runtime.lastError || !resp?.ok) {
+        return; // stays visible, student can retry
       }
-      if (resp.ok) {
-        const names = resp.courses.map(c => c.name).join(", ") || "(none found)";
-        authResult.textContent = `✅ Success! Courses: ${names}`;
-        populateCourseDropdown(resp.courses);
-        chrome.storage.local.set({ knownCourses: resp.courses });
-      } else {
-        authResult.textContent = `❌ Failed: ${resp.error}`;
-      }
-    });
-  });
-
-  syncBtn.addEventListener("click", () => {
-    const courseId = courseSelect.value;
-    const courseName = courseSelect.selectedOptions[0]?.dataset.name || courseSelect.selectedOptions[0]?.textContent;
-    if (!courseId) {
-      syncResult.textContent = "Pick a course first.";
-      return;
-    }
-    syncResult.textContent = "Syncing topics, coursework, materials, roster, submissions...";
-    chrome.runtime.sendMessage({ type: "SYNC_COURSE_DATA", courseId, courseName }, (resp) => {
-      if (chrome.runtime.lastError) {
-        syncResult.textContent = `Error: ${chrome.runtime.lastError.message}`;
-        return;
-      }
-      if (resp.ok) {
-        const groups = resp.data.groups;
-        const totalItems = resp.data.courseWork.length + resp.data.courseWorkMaterials.length;
-        const breakdown = Object.entries(groups)
-          .map(([name, items]) => `${name}: ${items.length}`)
-          .join(" | ");
-        syncResult.textContent = `✅ Total: ${totalItems} items — ${breakdown}`;
-        populateAssignmentDropdown(resp.data.courseWork);
-      } else {
-        syncResult.textContent = `❌ Failed: ${resp.error}`;
-      }
+      if (connectPrompt) connectPrompt.style.display = "none";
+      chrome.storage.local.get("knownCourses", (data) => {
+        if (data.knownCourses) populateCourseDropdown(data.knownCourses);
+      });
     });
   });
 
@@ -238,7 +254,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const courseId = courseSelect.value;
     const itemId = assignmentSelect.value;
     if (!courseId || !itemId) {
-      difficultyResult.textContent = "Sync a course and pick an assignment first.";
+      difficultyResult.textContent = "Select a course and pick an assignment first.";
       return;
     }
     difficultyResult.textContent = "Asking Gemini to size this up...";
@@ -253,7 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
           `"${resp.itemTitle}" — ${r.difficultyLabel} (${r.difficultyScore}/10) — ` +
           `~${r.estimatedMinutes} min. ${r.reasoning}`;
       } else {
-        difficultyResult.textContent = `❌ Failed: ${resp.error}`;
+        difficultyResult.textContent = `Failed: ${resp.error}`;
       }
     });
   });
@@ -277,11 +293,10 @@ document.addEventListener("DOMContentLoaded", () => {
         manualTopicsBox.style.display = "none";
         runTopicAnalysis();
       } else {
-        topicStatus.textContent = `❌ Failed to save topics: ${resp.error}`;
+        topicStatus.textContent = `Failed to save topics: ${resp.error}`;
       }
     });
   });
-
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     const url = tab?.url || "";
@@ -360,7 +375,7 @@ document.addEventListener("DOMContentLoaded", () => {
         (resp) => {
           if (chrome.runtime.lastError || !resp || !resp.ok) {
             if (resp?.needsSync) {
-              debugBox.textContent = "This course hasn't been synced yet — sync it (above) for an accurate total.";
+              debugBox.textContent = "This course hasn't been synced yet — select it above for an accurate total.";
             }
             sendFilterMessage(tab.id, teacher, null);
             return;

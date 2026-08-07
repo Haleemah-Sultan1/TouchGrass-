@@ -1,13 +1,4 @@
-// commentSummary.js
-// Feature: summarize class-comment threads into clean query/reply pairs.
-// Comments arrive as a flat chronological list (Classroom's class comments
-// aren't visually threaded), so the LLM infers which teacher reply answers
-// which student query from content + order, not from DOM nesting.
-//
-// IMPORTANT: the whole point of this feature is to save the student from
-// reading the full thread. The prompt below explicitly forbids quoting or
-// closely paraphrasing the original text — both the query and the reply
-// must be genuinely condensed summaries, not copies.
+
 
 const BACKEND_URL = "https://touchgrass-backend.touchgrass.workers.dev";
 

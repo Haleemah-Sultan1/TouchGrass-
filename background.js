@@ -1,11 +1,17 @@
-import { fetchCourses, fetchAllCoursesAnyState, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
+import { fetchCourses, fetchAllCoursesAnyState, isAuthorizedSilently, getAuthToken, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
 import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
 import { summarizeComments } from "./commentSummary.js";
+import { extractChecklist, verifyChecklistAgainstFiles } from "./submissionChecker.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
+  autoSyncAllCourses();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  autoSyncAllCourses();
 });
 
 async function resolveActiveCourseNames() {
@@ -39,8 +45,109 @@ function detectTaskType(item, topicName) {
   return "Assignments";
 }
 
+// ---------- Automatic background sync ----------
+// Silently checks if the student is already authorized (never prompts a
+// login window on its own for repeat runs) and, if so, re-syncs every
+// active non-Buddy course. Safe to call frequently — syncCourseData
+// respects the existing 15-minute cache internally (force: false), so
+// this is cheap when nothing's actually stale. Triggered on extension
+// startup/install, and on every message from content.js (page load) or
+// popup.js (popup open).
+//
+// The ONE exception: if the student has never been authorized at all,
+// this function will show the Google sign-in/consent window automatically
+// — but only once, ever (tracked via the "autoAuthAttempted" flag).
+// Whichever trigger fires first (install, or the first Classroom page
+// load) is the one that shows it. Every run after that stays silent,
+// even if the student dismissed or denied that first prompt — re-showing
+// it unprompted on every page load would be intrusive. If it was
+// dismissed, the popup shows a small "Connect" fallback the student can
+// click to retry (see FORCE_INTERACTIVE_AUTH below).
+let autoSyncInFlight = false;
+async function autoSyncAllCourses() {
+  if (autoSyncInFlight) return { ok: true, skipped: true };
+  autoSyncInFlight = true;
+
+  try {
+    let authorized = await isAuthorizedSilently();
+
+    if (!authorized) {
+      const alreadyTried = await new Promise((resolve) => {
+        chrome.storage.local.get("autoAuthAttempted", (data) => resolve(!!data.autoAuthAttempted));
+      });
+
+      if (!alreadyTried) {
+        await new Promise((resolve) => {
+          chrome.storage.local.set({ autoAuthAttempted: true }, resolve);
+        });
+        try {
+          await getAuthToken(true); // shows the one-time Google sign-in/consent window, no click needed
+          authorized = true;
+        } catch (err) {
+          console.warn("Automatic first-time authorization was dismissed or failed:", err.message);
+          authorized = false;
+        }
+      }
+    }
+
+    if (!authorized) {
+      return { ok: false, reason: "not_authorized" };
+    }
+
+    const courses = await fetchCourses();
+    await new Promise((resolve) => {
+      chrome.storage.local.set(
+        { knownCourses: courses.map((c) => ({ id: c.id, name: c.name })) },
+        resolve
+      );
+    });
+
+    const targets = courses.filter((c) => !isExcludedCourseName(c.name));
+    let syncedCount = 0;
+
+    for (const c of targets) {
+      try {
+        await syncCourseData(c.id, c.name, { force: false });
+        syncedCount++;
+      } catch (err) {
+        console.warn(`Auto-sync failed for "${c.name}":`, err.message);
+      }
+    }
+
+    console.log(`Auto-sync complete: ${syncedCount}/${targets.length} course(s) up to date.`);
+    return { ok: true, syncedCount, totalCount: targets.length };
+  } catch (err) {
+    console.warn("Auto-sync failed:", err.message);
+    return { ok: false, error: err.message };
+  } finally {
+    autoSyncInFlight = false;
+  }
+}
+
 // ---------- Messages from popup / planner / content script ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "AUTO_SYNC_ALL") {
+    autoSyncAllCourses().then((result) => sendResponse(result));
+    return true;
+  }
+
+  // Fallback for when the one-time automatic prompt (above) was dismissed
+  // or denied. Only ever called from an explicit click on the popup's
+  // "Connect" prompt — always a real user gesture — so it's safe to call
+  // getAuthToken interactively here directly.
+  if (msg.type === "FORCE_INTERACTIVE_AUTH") {
+    (async () => {
+      try {
+        await getAuthToken(true);
+        const result = await autoSyncAllCourses();
+        sendResponse({ ok: true, syncResult: result });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === "TEST_AUTH") {
     fetchAllCoursesAnyState()
       .then((courses) => sendResponse({
@@ -52,6 +159,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "SYNC_COURSE_DATA") {
+    // force: true here is intentional (not a leftover) — this now fires
+    // when a student explicitly selects a course in the popup, so we want
+    // guaranteed-fresh data for that course right away rather than
+    // possibly serving up to 15-minute-old cache.
     syncCourseData(msg.courseId, msg.courseName, { force: true })
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
@@ -245,4 +356,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+
+  if (msg.type === "EXTRACT_CHECKLIST") {
+  extractChecklist(msg.instructionsText)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
+
+if (msg.type === "VERIFY_CHECKLIST") {
+  verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
+    .then((results) => sendResponse({ ok: true, results }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
+
 });

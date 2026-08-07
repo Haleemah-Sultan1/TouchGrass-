@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8" />
     <style>
         body {
             width: 300px;
@@ -106,7 +107,8 @@
             border-top: 1px solid #333;
             padding-top: 10px;
         }
-         #pinned-header {
+
+        #pinned-header {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -133,12 +135,12 @@
             border-radius: 6px;
             padding: 8px;
             cursor: pointer;
-            z-index:0;
+            z-index: 0;
         }
 
-        .pinned-item:hover {
-            background: #262626;
-        }
+            .pinned-item:hover {
+                background: #262626;
+            }
 
         .pin-dot {
             width: 6px;
@@ -157,8 +159,8 @@
             display: -webkit-box;
             -webkit-line-clamp: 2;
             line-clamp: 2;
-           -webkit-box-orient: vertical;
-           z-index:0;
+            -webkit-box-orient: vertical;
+            z-index: 0;
         }
 
         .pin-time {
@@ -177,20 +179,19 @@
             width: auto;
             margin: 50;
             flex-shrink: 0;
-            z-index:0;
-
+            z-index: 0;
         }
 
-        .unpin-btn:hover {
-            color: #f87171;
-            background: rgba(248, 113, 113, 0.15);
-            border-radius: 4px;
-        }
+            .unpin-btn:hover {
+                color: #f87171;
+                background: rgba(248, 113, 113, 0.15);
+                border-radius: 4px;
+            }
 
-        .pin-toggle-btn:hover {
-            background: rgba(127, 119, 221, 0.15);
-            border-radius: 4px;
-        }
+            .pin-toggle-btn:hover {
+                background: rgba(127, 119, 221, 0.15);
+                border-radius: 4px;
+            }
 
         .empty-state {
             font-size: 11px;
@@ -232,9 +233,9 @@
             overflow-y: auto;
         }
 
-        .course-picker-panel.open {
-            display: block;
-        }
+            .course-picker-panel.open {
+                display: block;
+            }
 
         .course-option {
             padding: 8px 10px;
@@ -243,14 +244,14 @@
             cursor: pointer;
         }
 
-        .course-option:hover {
-            background: #2a2a2a;
-        }
+            .course-option:hover {
+                background: #2a2a2a;
+            }
 
-        .course-option.selected {
-            background: #7F77DD;
-            color: #fff;
-        }
+            .course-option.selected {
+                background: #7F77DD;
+                color: #fff;
+            }
 
         .course-archived-header {
             padding: 8px 10px;
@@ -261,9 +262,9 @@
             user-select: none;
         }
 
-        .course-archived-header:hover {
-            background: #2a2a2a;
-        }
+            .course-archived-header:hover {
+                background: #2a2a2a;
+            }
 
         .archived-caret {
             display: inline-block;
@@ -271,9 +272,9 @@
             margin-right: 4px;
         }
 
-        .archived-caret.open {
-            transform: rotate(90deg);
-        }
+            .archived-caret.open {
+                transform: rotate(90deg);
+            }
 
         .course-archived-list .course-option {
             padding-left: 22px;
@@ -281,13 +282,17 @@
     </style>
 </head>
 <body>
-    <h3>⚡ TouchGrass</h3>
+    <h3>TouchGrass</h3>
 
-    <label>Milestone 1 check</label>
-    <button id="testAuth">Test Classroom API Auth</button>
-    <div id="authResult" style="font-size: 11px; color: #9f9; word-wrap: break-word;"></div>
+    <button id="openPlanner" style="background:#28a745;">Open Study Planner</button>
+    <button id="openChecklist" style="background:#e67e22;">Submission Checker</button>
+    <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
 
-    <div id="debugBox">Loading...</div>
+    <div id="pinned-section">
+        <div id="pinned-header">Pinned <span id="pin-count"></span></div>
+        <div id="pinned-list"><div class="empty-state">Loading...</div></div>
+    </div>
+
     <label>Teacher</label>
     <select id="teacherFilter">
         <option value="all">All teachers</option>
@@ -295,42 +300,39 @@
 
     <button id="applyFilters">Apply Filter</button>
 
+    <div id="debugBox">Loading...</div>
 
-    <div id="pinned-section">
-      <div id="pinned-header">📌 Pinned <span id="pin-count"></span></div>
-      <div id="pinned-list"><div class="empty-state">Loading…</div></div>
+    <div id="connectPrompt" style="display:none; background:#3a2a1a; border:1px solid #a76; border-radius:4px; padding:10px; margin-bottom:10px; font-size:12px;">
+        Couldn't connect to Google Classroom automatically.
+        <button id="connectBtn" style="margin-top:8px;">Connect Google Classroom</button>
     </div>
 
-    <button id="openFiles" style="background:#6f42c1;">📎 Open All Files</button>
-    
-
-    <label>Milestone 2 check</label>
+    <label>Course</label>
     <div class="course-picker" id="coursePicker">
-      <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Run auth test first ↑</button>
-      <div class="course-picker-panel" id="coursePickerPanel">
-        <div id="activeCourseList"></div>
-        <div class="course-archived-header" id="archivedHeader" style="display:none;">
-          <span class="archived-caret" id="archivedCaret">▸</span> Archived Classes
+        <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Loading courses...</button>
+        <div class="course-picker-panel" id="coursePickerPanel">
+            <div id="activeCourseList"></div>
+            <div class="course-archived-header" id="archivedHeader" style="display:none;">
+                <span class="archived-caret" id="archivedCaret">&gt;</span> Archived Classes
+            </div>
+            <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
         </div>
-        <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
-      </div>
     </div>
-    <select id="courseSelect" style="display:none"><option value="">Run auth test first ↑</option></select>
-    <button id="syncCourse">Sync Selected Course Data</button>
-    <div id="syncResult" style="font-size: 11px; color: #9cf; word-wrap: break-word;"></div>
+    <select id="courseSelect" style="display:none"><option value="">Loading courses...</option></select>
+    <div id="courseSyncStatus" style="font-size: 11px; color: #9cf; word-wrap: break-word; margin-bottom: 8px;"></div>
 
-    <label>Milestone 4 check: Difficulty Estimation</label>
-    <select id="assignmentSelect"><option value="">Sync a course first ↑</option></select>
+    <label>Difficulty Estimation</label>
+    <select id="assignmentSelect"><option value="">Select a course first</option></select>
     <button id="estimateBtn">Estimate Difficulty</button>
     <div id="difficultyResult" style="font-size: 12px; color: #fc9; word-wrap: break-word;"></div>
 
-    <label>Milestone 5 check: Topic & Concept Breakdown (per question)</label>
+    <label>Topic &amp; Concept Breakdown (per question)</label>
     <button id="analyzeTopicsBtn">Analyze Question-by-Question</button>
     <button id="useManualTopicsBtn" style="background:#555;">Use My Own Topic List Instead</button>
     <div id="manualTopicsBox">
         <label>Enter topics, comma-separated:</label>
         <input type="text" id="manualTopicsInput" placeholder="e.g. Graphs, Trees, Recursion">
-        <button id="saveManualTopicsBtn">Save Topics & Retry</button>
+        <button id="saveManualTopicsBtn">Save Topics &amp; Retry</button>
     </div>
     <div id="topicStatus" style="font-size: 12px; color: #fca; word-wrap: break-word;"></div>
     <div id="topicResult"></div>
