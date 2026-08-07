@@ -286,10 +286,13 @@
 
     <button id="openPlanner" style="background:#28a745;">Open Study Planner</button>
     <button id="openChecklist" style="background:#e67e22;">Submission Checker</button>
-    <button id="openPlanner" style="background:#28a745;">Open Study Planner</button>
     <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
 
-    <div id="debugBox">Loading...</div>
+    <div id="pinned-section">
+        <div id="pinned-header">Pinned <span id="pin-count"></span></div>
+        <div id="pinned-list"><div class="empty-state">Loading...</div></div>
+    </div>
+
     <label>Teacher</label>
     <select id="teacherFilter">
         <option value="all">All teachers</option>
@@ -297,13 +300,7 @@
 
     <button id="applyFilters">Apply Filter</button>
 
-
-    <div id="pinned-section">
-        <div id="pinned-header">Pinned <span id="pin-count"></span></div>
-        <div id="pinned-list"><div class="empty-state">Loading...</div></div>
-    </div>
-
-    <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
+    <div id="debugBox">Loading...</div>
 
     <div id="connectPrompt" style="display:none; background:#3a2a1a; border:1px solid #a76; border-radius:4px; padding:10px; margin-bottom:10px; font-size:12px;">
         Couldn't connect to Google Classroom automatically.
