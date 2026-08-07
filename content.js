@@ -1,5 +1,5 @@
 console.log("TouchGrass GCR loaded");
-
+chrome.runtime.sendMessage({ type: 'AUTO_SYNC_ALL' }, () => { void chrome.runtime.lastError; });
 let currentClassId = null;
 let currentPath = location.pathname;
 let scannedPosts = [];
