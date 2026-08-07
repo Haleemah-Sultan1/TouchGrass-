@@ -1,4 +1,4 @@
-import { fetchCourses, fetchAllCoursesAnyState, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
+import { fetchCourses, fetchAllCoursesAnyState, isAuthorizedSilently, syncCourseData, getCachedCourseData, getAllCachedCourses } from "./classroomapi.js";
 import { estimateDifficulty } from "./difficulty.js";
 import { analyzeTopicRelevance, NoTopicsError, saveManualTopics, getManualTopics } from "./topicRelevancy.js";
 import { buildSchedule, buildSubjectStudySchedule } from "./studyPlanner.js";
@@ -7,6 +7,11 @@ import { extractChecklist, verifyChecklistAgainstFiles } from "./submissionCheck
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("TouchGrass GCR installed");
+  autoSyncAllCourses();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  autoSyncAllCourses();
 });
 
 async function resolveActiveCourseNames() {
@@ -40,8 +45,61 @@ function detectTaskType(item, topicName) {
   return "Assignments";
 }
 
+// ---------- Automatic background sync ----------
+// Silently checks if the student is already authorized (never prompts a
+// login window on its own) and, if so, re-syncs every active non-Buddy
+// course. Safe to call frequently — syncCourseData respects the existing
+// 15-minute cache internally (force: false), so this is cheap when
+// nothing's actually stale. Triggered on extension startup/install, and
+// on every message from content.js (page load) or popup.js (popup open).
+let autoSyncInFlight = false;
+async function autoSyncAllCourses() {
+  if (autoSyncInFlight) return { ok: true, skipped: true };
+  autoSyncInFlight = true;
 
+  try {
+    const authorized = await isAuthorizedSilently();
+    if (!authorized) {
+      return { ok: false, reason: "not_authorized" };
+    }
+
+    const courses = await fetchCourses();
+    await new Promise((resolve) => {
+      chrome.storage.local.set(
+        { knownCourses: courses.map((c) => ({ id: c.id, name: c.name })) },
+        resolve
+      );
+    });
+
+    const targets = courses.filter((c) => !isExcludedCourseName(c.name));
+    let syncedCount = 0;
+
+    for (const c of targets) {
+      try {
+        await syncCourseData(c.id, c.name, { force: false });
+        syncedCount++;
+      } catch (err) {
+        console.warn(`Auto-sync failed for "${c.name}":`, err.message);
+      }
+    }
+
+    console.log(`🔁 Auto-sync complete: ${syncedCount}/${targets.length} course(s) up to date.`);
+    return { ok: true, syncedCount, totalCount: targets.length };
+  } catch (err) {
+    console.warn("Auto-sync failed:", err.message);
+    return { ok: false, error: err.message };
+  } finally {
+    autoSyncInFlight = false;
+  }
+}
+
+// ---------- Messages from popup / planner / content script ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "AUTO_SYNC_ALL") {
+    autoSyncAllCourses().then((result) => sendResponse(result));
+    return true;
+  }
+
   if (msg.type === "TEST_AUTH") {
     fetchAllCoursesAnyState()
       .then((courses) => sendResponse({
@@ -246,17 +304,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "EXTRACT_CHECKLIST") {
-  extractChecklist(msg.instructionsText)
-    .then((result) => sendResponse({ ok: true, result }))
-    .catch((err) => sendResponse({ ok: false, error: err.message }));
-  return true;
-}
+    extractChecklist(msg.instructionsText)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 
-if (msg.type === "VERIFY_CHECKLIST") {
-  verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
-    .then((results) => sendResponse({ ok: true, results }))
-    .catch((err) => sendResponse({ ok: false, error: err.message }));
-  return true;
-}
-
+  if (msg.type === "VERIFY_CHECKLIST") {
+    verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
+      .then((results) => sendResponse({ ok: true, results }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
