@@ -74,7 +74,7 @@ async function apiFetchAllPages(baseUrl, listKey) {
 
     for (const item of pageItems) {
       if (item.id && seenIds.has(item.id)) {
-        console.warn(`⚠️ Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
+        console.warn(`Duplicate item skipped in ${listKey}:`, item.id, item.title || "");
         continue;
       }
       if (item.id) seenIds.add(item.id);
@@ -84,7 +84,7 @@ async function apiFetchAllPages(baseUrl, listKey) {
     pageToken = data.nextPageToken || null;
   } while (pageToken);
 
-  console.log(`📄 ${listKey}: fetched ${pageCount} page(s), ${items.length} unique item(s)`);
+  console.log(`${listKey}: fetched ${pageCount} page(s), ${items.length} unique item(s)`);
   return items;
 }
 
@@ -127,10 +127,10 @@ export async function fetchCourseWorkMaterials(courseId) {
   );
 }
 
-// Announcements are the actual "stream posts" the teacher-filter feature
-// cares about — fetching these directly means we get the true, complete
-// list (and each one's creatorUserId) with no dependency on how much of
-// the DOM Classroom has lazily rendered.
+// NEW: announcements are the actual "stream posts" the teacher-filter
+// feature cares about — fetching these directly means we get the true,
+// complete list (and each one's creatorUserId) with no dependency on
+// how much of the DOM Classroom has lazily rendered.
 export async function fetchAnnouncements(courseId) {
   return apiFetchAllPages(
     `https://classroom.googleapis.com/v1/courses/${courseId}/announcements?`,
@@ -177,14 +177,14 @@ export function groupContentByTopic(courseWork, courseWorkMaterials, topics) {
 
 // ---------- Debug: print exact titles per topic group ----------
 export function debugPrintGroups(groups) {
-  console.log("──── TOPIC GROUPING DEBUG ────");
+  console.log("---- TOPIC GROUPING DEBUG ----");
   Object.entries(groups).forEach(([topicName, items]) => {
     console.log(`\n${topicName} (${items.length}):`);
     items.forEach((item, i) => {
       console.log(`  ${i + 1}. "${item.title}" [workType: ${item.workType || "MATERIAL"}]`);
     });
   });
-  console.log("───────────────────────────────");
+  console.log("-------------------------------");
 }
 
 // Maps each announcement's creatorUserId to a teacher display name using
@@ -285,7 +285,7 @@ async function syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMate
     });
   });
 
-  console.log(`📎 Synced ${files.length} file attachment(s) into classFiles[${classId}] for course ${courseId}`);
+  console.log(`Synced ${files.length} file attachment(s) into classFiles[${classId}] for course ${courseId}`);
   return files;
 }
 
@@ -297,12 +297,12 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   if (!force) {
     const cached = await getCachedCourseData(courseId);
     if (cached) {
-      console.log(`📦 Using cached data for course ${courseId} (age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s)`);
+      console.log(`Using cached data for course ${courseId} (age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s)`);
       return cached;
     }
   }
 
-  console.log(`🔄 Fetching fresh data for course ${courseId}...`);
+  console.log(`Fetching fresh data for course ${courseId}...`);
   const [topics, courseWork, courseWorkMaterials, roster, announcementsRaw] = await Promise.all([
     fetchTopics(courseId),
     fetchCourseWork(courseId),
@@ -331,7 +331,7 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   await syncFilesIntoClassFilesStore(courseId, courseWork, courseWorkMaterials, announcements);
 
   const totalItems = courseWork.length + courseWorkMaterials.length;
-  console.log(`✅ Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
+  console.log(`Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
   return saved;
