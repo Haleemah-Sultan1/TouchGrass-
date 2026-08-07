@@ -83,7 +83,7 @@ async function autoSyncAllCourses() {
       }
     }
 
-    console.log(`🔁 Auto-sync complete: ${syncedCount}/${targets.length} course(s) up to date.`);
+    console.log(`Auto-sync complete: ${syncedCount}/${targets.length} course(s) up to date.`);
     return { ok: true, syncedCount, totalCount: targets.length };
   } catch (err) {
     console.warn("Auto-sync failed:", err.message);
@@ -296,6 +296,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Milestone 7/8: comment summarization, triggered from content.js on a
+  // specific assignment/coursework detail page.
   if (msg.type === "SUMMARIZE_COMMENTS") {
     summarizeComments(msg.comments)
       .then((queries) => sendResponse({ ok: true, queries }))
@@ -304,16 +306,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "EXTRACT_CHECKLIST") {
-    extractChecklist(msg.instructionsText)
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
+  extractChecklist(msg.instructionsText)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
 
-  if (msg.type === "VERIFY_CHECKLIST") {
-    verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
-      .then((results) => sendResponse({ ok: true, results }))
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
+if (msg.type === "VERIFY_CHECKLIST") {
+  verifyChecklistAgainstFiles(msg.checklistItems, msg.textFileBlocks, msg.binaryFileParts)
+    .then((results) => sendResponse({ ok: true, results }))
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
+}
+
 });
