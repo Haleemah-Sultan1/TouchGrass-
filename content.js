@@ -119,13 +119,13 @@ function toggleDarkMode() {
 }
 
 // ==================== PIN SUPPORT ====================
-// Two things live here:
-//  1. An on-page hover pin button, injected onto each stream card, so you
-//     can pin/unpin directly from the Classroom feed (restored).
-//  2. The same GET_STREAM_POSTS / SCROLL_TO_PIN messages the popup uses for
-//     its own "Posts on this page" / "Pinned" lists. Both UIs read and write
-//     the exact same chrome.storage.local "pinnedPosts" schema, so pinning
-//     from the page or from the popup always stay in sync.
+// Fallback for the rare pin that has no saved permalink: instead of
+// giving up after one look and telling the user to scroll manually, this
+// scrolls the page itself in steps - each step gives Classroom's lazy
+// loader time to render more posts, then re-checks. Stops as soon as the
+// post is found (or after maxAttempts, in case it's truly not there
+// anymore - e.g. deleted).
+// ==================== PIN SUPPORT ====================
 
 function makePinId(el) {
   const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
@@ -138,15 +138,94 @@ function makePinId(el) {
   }
   return 'tg_' + Math.abs(hash).toString(36);
 }
+function highlightAndFinish(el, onDone) {
+  scrollToMatch(el);
+  el.style.transition = 'box-shadow 0.3s';
+  el.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
+  setTimeout(() => { el.style.boxShadow = ''; }, 1500);
+  onDone(true);
+}
 
-// Classroom stream cards usually have a timestamp link like
-// /c/<classId>/p or a/<postId>/details buried inside them — a real,
-// navigable permalink to that individual post.
+function showScrollStatus(text) {
+  let el = document.getElementById('tg-scroll-status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tg-scroll-status';
+    el.style.cssText = `
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      z-index: 999999; background: #1a1a1a; color: #eee; padding: 10px 18px;
+      border-radius: 999px; font-family: sans-serif; font-size: 13px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `;
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+}
+
+function hideScrollStatus() {
+  document.getElementById('tg-scroll-status')?.remove();
+}
+
+function scrollToPinPosition(pinId, savedPosition, onDone) {
+  if (typeof savedPosition === 'number') {
+    window.scrollTo({ top: Math.max(savedPosition - 120, 0), behavior: 'instant' });
+  }
+
+  setTimeout(() => {
+    scanStreamPosts();
+    const immediate = scannedPosts.find(({ el }) => makePinId(el) === pinId);
+    if (immediate) {
+      highlightAndFinish(immediate.el, onDone);
+      return;
+    }
+    showScrollStatus('Looking for your pinned post…');
+    autoScrollUntilFound(pinId, (match) => {
+      if (match) {
+        hideScrollStatus();
+        highlightAndFinish(match.el, () => onDone(true));
+      } else {
+        showScrollStatus("Couldn't find that post. Press again to Find it.");
+        setTimeout(hideScrollStatus, 2000);
+        onDone(false);
+      }
+    });
+  }, 400);
+}
+function autoScrollUntilFound(pinId, onDone, maxAttempts = 75) {
+  let attempts = 0;
+
+  function tryStep() {
+    scanStreamPosts();
+    const match = scannedPosts.find(({ el }) => makePinId(el) === pinId);
+    if (match) { onDone(match); return; }
+
+    attempts++;
+    if (attempts >= maxAttempts) { onDone(null); return; }
+
+    window.scrollBy(0, window.innerHeight * 0.85);
+    setTimeout(tryStep, 700);
+  }
+
+  tryStep();
+}
+function getElementPosition(el) {
+  const rect = el.getBoundingClientRect();
+  return Math.round(rect.top + window.scrollY);
+}
 function extractPinLink(el) {
+  const streamId = el.closest('[data-stream-item-id]')?.getAttribute('data-stream-item-id');
+  if (streamId) {
+    const classId = getClassId();
+    if (classId) {
+      const permalinkId = /^\d+$/.test(streamId) ? btoa(streamId) : streamId;
+      return `${location.origin}/c/${classId}/p/${permalinkId}/details`;
+    }
+  }
+
   const anchors = Array.from(el.querySelectorAll('a[href*="/c/"]'));
   for (const a of anchors) {
     const href = a.getAttribute('href') || '';
-    if (/\/c\/[^\/]+\/(p|a)\/[^\/]+/.test(href)) {
+    if (/\/c\/[^\/]+\/(p|a|m)\/[^\/]+/.test(href)) {
       return href.startsWith('http') ? href : (location.origin + href);
     }
   }
@@ -236,7 +315,7 @@ function setPinned(classId, post, shouldBePinned, callback) {
     let pins = all[classId] || [];
     if (shouldBePinned) {
       if (!pins.some(p => p.id === post.id)) {
-        pins = [...pins, { id: post.id, snippet: post.snippet, url: post.url, pinnedAt: Date.now() }];
+        pins = [...pins, { id: post.id, snippet: post.snippet, position: post.position, pinnedAt: Date.now() }];
       }
     } else {
       pins = pins.filter(p => p.id !== post.id);
@@ -273,7 +352,7 @@ function injectPinButtons(classId) {
           const post = {
             id: makePinId(el),
             snippet: el.innerText?.trim().replace(/\s+/g, ' ').slice(0, 150) || '',
-            url: extractPinLink(el),
+            position: getElementPosition(el),
           };
           const nowPinned = !btn.classList.contains('tg-pinned');
           setPinned(classId, post, nowPinned, () => {
@@ -1004,18 +1083,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ posts });
     return true;
   }
-  // Fallback for pins that never captured a real permalink (rare) — only
-  // used when the popup can't just navigate straight to pin.url.
   if (msg.type === 'SCROLL_TO_PIN') {
-    scanStreamPosts();
-    const match = scannedPosts.find(({ el }) => makePinId(el) === msg.pinId);
-    if (match) {
-      scrollToMatch(match.el);
-      match.el.style.transition = 'box-shadow 0.3s';
-      match.el.style.boxShadow = '0 0 0 4px rgba(127, 119, 221, 0.5)';
-      setTimeout(() => { match.el.style.boxShadow = ''; }, 1500);
-    }
-    sendResponse({ found: !!match });
+    scrollToPinPosition(msg.pinId, msg.pinPosition, (found) => {
+      sendResponse({ found });
+    });
     return true;
   }
   if (msg.type === 'TOGGLE_DARK_MODE') {

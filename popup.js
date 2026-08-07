@@ -542,7 +542,7 @@ function renderPins(pins, classId, tabId) {
   pins.slice().reverse().forEach(pin => {
     const item = document.createElement('div');
     item.className = 'pinned-item';
-    item.title = pin.url ? 'Click to open this announcement' : 'Click to scroll to this post';
+   item.title = 'Click to jump to this post';
     item.innerHTML = `
       <div class="pin-dot"></div>
       <div style="flex:1; min-width:0;">
@@ -552,22 +552,34 @@ function renderPins(pins, classId, tabId) {
       <button class="unpin-btn" title="Unpin" data-id="${pin.id}">x</button>
     `;
 
-    item.addEventListener('click', (e) => {
+   item.addEventListener('click', (e) => {
       if (e.target.classList.contains('unpin-btn')) return;
+      if (!tabId) return;
 
-      // If a real permalink was captured when this post was pinned,
-      // navigate straight there.
-      if (pin.url) {
-        chrome.tabs.update(tabId, { url: pin.url });
-        return;
+      function sendScrollMessage() {
+        chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_PIN', pinId: pin.id, pinPosition: pin.position }, (res) => {
+          if (chrome.runtime.lastError || !res?.found) {
+            alert("Couldn't find that post — it may be below, press again to scroll down.");
+          }
+        });
       }
 
-      // No permalink was found for this post — fall back to scrolling,
-      // which only works if you're already on that class's stream.
-      if (!tabId) return;
-      chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_PIN', pinId: pin.id }, (res) => {
-        if (chrome.runtime.lastError || !res?.found) {
-          alert("Couldn't jump directly to this post — open the class stream and scroll to find it manually.");
+      chrome.tabs.get(tabId, (tab) => {
+        const url = tab?.url || '';
+        const onStreamRoot = new RegExp(`/c/${classId}(/)?($|\\?)`).test(url);
+
+        if (onStreamRoot) {
+          sendScrollMessage();
+        } else {
+          chrome.tabs.update(tabId, { url: `https://classroom.google.com/c/${classId}` }, () => {
+            const listener = (updatedTabId, changeInfo) => {
+              if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                chrome.tabs.onUpdated.removeListener(listener);
+                setTimeout(sendScrollMessage, 1200);
+              }
+            };
+            chrome.tabs.onUpdated.addListener(listener);
+          });
         }
       });
     });
