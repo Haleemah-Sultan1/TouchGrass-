@@ -1,4 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
+    chrome.runtime.sendMessage({ type: 'AUTO_SYNC_ALL' }, () => { void chrome.runtime.lastError; });
   document.getElementById("openPlanner")?.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("planner.html") });
   });
