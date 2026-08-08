@@ -179,5 +179,6 @@ export function buildSubjectStudySchedule(subjects, options) {
     if (!placed) overflow.push(chunk);
   }
 
+
   return { schedule, overflow };
 }
