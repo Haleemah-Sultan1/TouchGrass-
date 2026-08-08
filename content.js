@@ -12,6 +12,13 @@ window.__tgStudents = window.__tgStudents || new Map();
 
 function cleanupPreviousState() {
   scannedPosts = [];
+  clearHighlights(); // removes highlighted cards AND the tg-match-nav pill
+  document.getElementById('tg-summary-fab')?.remove();
+  document.getElementById('tg-summary-panel')?.remove();
+  if (feedObserver) {
+    feedObserver.disconnect();
+    feedObserver = null;
+  }
 }
 
 // ==================== DARK MODE ====================
