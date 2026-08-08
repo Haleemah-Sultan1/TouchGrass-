@@ -171,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+
   // Escapes the text for safe HTML insertion, then wraps every match of
   // the current search query in <mark> — same idea as Ctrl+F highlighting.
   function highlightMatch(text, query) {
