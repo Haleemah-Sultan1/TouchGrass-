@@ -334,5 +334,6 @@ export async function syncCourseData(courseId, courseName, { force = false } = {
   console.log(`Synced course ${courseId} (${courseName}): ${totalItems} total items across ${Object.keys(groups).length} topic groups, ${announcements.length} announcements`);
   Object.entries(groups).forEach(([name, items]) => console.log(`   ${name}: ${items.length}`));
 
+
   return saved;
 }
