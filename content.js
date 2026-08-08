@@ -10,6 +10,16 @@ let currentMatchIndex = -1;
 window.__tgTeachers = window.__tgTeachers || new Map();
 window.__tgStudents = window.__tgStudents || new Map();
 
+// ---- Extension context guard ----
+// Reloading/updating the extension from chrome://extensions severs the
+// connection any already-open tab's content script had to chrome.runtime,
+// but the script itself keeps running (its timers/observers don't die).
+// This lets us detect that and stop cleanly instead of throwing errors on
+// every mutation/interval tick.
+function isExtensionContextValid() {
+  return !!(chrome.runtime && chrome.runtime.id);
+}
+
 function cleanupPreviousState() {
   scannedPosts = [];
   clearHighlights(); // removes highlighted cards AND the tg-match-nav pill
@@ -656,8 +666,16 @@ function watchFeed(classId) {
   if (feedObserver) feedObserver.disconnect();
   const mainArea = document.querySelector('main') || document.body;
   feedObserver = new MutationObserver(() => {
+    // Guard: extension was reloaded/updated while this tab was open, so
+    // chrome.runtime is dead here — stop observing instead of throwing.
+    if (!isExtensionContextValid()) {
+      feedObserver.disconnect();
+      feedObserver = null;
+      return;
+    }
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      if (!isExtensionContextValid()) return;
       scanStreamPosts(); // keep the list fresh for GET_STREAM_POSTS
       saveCollectedFiles(classId, collectFilesForClass(classId));  
       injectPinButtons(classId);
@@ -1059,7 +1077,13 @@ function handlePageContext() {
 
 handlePageContext();
 
-setInterval(() => {
+// Named (was anonymous) so it can be cleared once the extension context
+// goes stale — same guard reasoning as watchFeed's observer above.
+const tgPathWatcher = setInterval(() => {
+  if (!isExtensionContextValid()) {
+    clearInterval(tgPathWatcher);
+    return;
+  }
   if (location.pathname !== currentPath) {
     currentPath = location.pathname;
     handlePageContext();
