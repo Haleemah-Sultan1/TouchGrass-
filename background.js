@@ -94,10 +94,15 @@ async function autoSyncAllCourses() {
       return { ok: false, reason: "not_authorized" };
     }
 
-    const courses = await fetchCourses();
+    // Sync EVERYTHING here — active AND archived — so archived classes'
+    // files stay available in the Files feature even after archiving.
+    // Individual features (difficulty estimation, study plan, etc.) filter
+    // down to active-only themselves via resolveActiveCourseNames() /
+    // fetchCourses(), so this doesn't change their behavior.
+    const courses = await fetchAllCoursesAnyState();
     await new Promise((resolve) => {
       chrome.storage.local.set(
-        { knownCourses: courses.map((c) => ({ id: c.id, name: c.name })) },
+        { knownCourses: courses.map((c) => ({ id: c.id, name: c.name, courseState: c.courseState })) },
         resolve
       );
     });
