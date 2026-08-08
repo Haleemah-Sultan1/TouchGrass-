@@ -191,7 +191,7 @@ function scrollToPinPosition(pinId, savedPosition, onDone) {
     });
   }, 400);
 }
-function autoScrollUntilFound(pinId, onDone, maxAttempts = 75) {
+function autoScrollUntilFound(pinId, onDone, maxAttempts = 55) {
   let attempts = 0;
 
   function tryStep() {
@@ -262,9 +262,10 @@ function injectPinButtonStyles() {
       background-color: rgba(127, 119, 221, 0.05) !important;
     }
     .tg-pin-btn {
+    font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif;
       position: absolute !important;
-      top: 20px !important;
-      right: 35px !important;
+      top: 19px !important;
+      right: 55px !important;
       /* Was 999998 — high enough to render on top of Classroom's own
          sticky header when a card scrolls near the top. Kept modest so it
          stays above the post's own content but never escapes above GCR's
@@ -275,8 +276,8 @@ function injectPinButtonStyles() {
       background: rgba(24, 24, 24, 0.85) !important;
       border: none !important;
       border-radius: 999px !important;
-      width: 30px !important;
-      height: 30px !important;
+      width: 35px !important;
+      height: 35px !important;
       min-width: 30px !important;
       padding: 0 !important;
       font-size: 15px !important;
@@ -357,7 +358,7 @@ function injectPinButtons(classId) {
           const nowPinned = !btn.classList.contains('tg-pinned');
           setPinned(classId, post, nowPinned, () => {
             btn.classList.toggle('tg-pinned', nowPinned);
-            btn.textContent = nowPinned ? '●' : '○';
+            btn.textContent = nowPinned ? '\uD83D\uDCCD' : '\uD83D\uDCCC';
             btn.title = nowPinned ? 'Unpin this post' : 'Pin this post';
             el.classList.toggle('tg-card-pinned', nowPinned);
           });
@@ -365,7 +366,7 @@ function injectPinButtons(classId) {
       }
 
       btn.classList.toggle('tg-pinned', isPinned);
-      btn.textContent = isPinned ? '●' : '○';
+      btn.textContent = isPinned ? '\uD83D\uDCCD' : '\uD83D\uDCCC';
       btn.title = isPinned ? 'Unpin this post' : 'Pin this post';
       el.classList.toggle('tg-card-pinned', isPinned);
     });
