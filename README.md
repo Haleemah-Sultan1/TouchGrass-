@@ -27,3 +27,13 @@ If the topics listed in Google Classroom are only being used for organization an
 Important answers can easily get lost in long Classroom comment threads, especially when multiple students are asking similar questions. This feature goes through the full class comment section and groups repeated questions together.
 
 Each unique student query is shown with a short summary of the teacher's response instead of simply copying the original comment. The teacher's name is included for attribution, while questions that haven't received an answer are clearly marked.
+
+### Pin Feature (Announcement Pinning)
+Similar to pinning a message in WhatsApp, students can pin any announcement, assignment, or material post directly from the class stream and revisit it instantly from the extension popup. Hovering over a post reveals a **pin button**, and the pinned list stays in sync instantly whether a post is pinned from the page itself or from the popup.
+
+Clicking a pinned post scrolls straight to it instead of making the student search the feed manually. The extension remembers exactly where the post was on the page at the moment it was pinned, so it can jump there almost instantly the next time. If the feed has shifted since then (new posts pushed the original one further down), it automatically keeps scrolling down the page to relocate it, showing a *"Looking for your pinned post…"* message so the movement doesn't feel unexplained. If it still isn't found on the first try, clicking the same pin again retries the search from wherever the page currently is.
+
+### File Feature (All Attachments)
+Rather than digging through announcements, assignments, and materials one by one to find a specific file, TouchGrass GCR collects every attachment across a class — PDFs, PowerPoint slides, images, documents, zip files, and more — into a single **Open All Files** tab. Each entry links both to the file itself and back to the original post it came from.
+
+The list can be filtered by file type or searched by filename right from the page header, similar to a Ctrl+F search, with matching text highlighted as the student types. Since file collection is part of the same automatic background sync described above, it works for archived classes too, so attachments from older, no-longer-active courses stay accessible instead of disappearing along with the course.
