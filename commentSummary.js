@@ -13,6 +13,7 @@ ${listText}
 
 Your job is to produce SHORT, GENUINELY CONDENSED summaries — not copies or close paraphrases of the original text. A student reading your output should understand the discussion WITHOUT needing to read the original comments at all. This is the entire point of the feature.
 
+
 Instructions:
 1. Identify each distinct student question or query. If the same question is asked by multiple students (even worded slightly differently), treat it as ONE query — don't repeat it.
 2. For each query, write a SHORT summary (max ~12 words) of what was being asked, in your own words. Do NOT copy the student's wording verbatim or near-verbatim. Strip out filler, pleasantries, and restate only the core question.
