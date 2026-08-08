@@ -538,6 +538,7 @@ function loadPins() {
   });
 }
 
+
 function renderPins(pins, classId, tabId) {
   const list = document.getElementById('pinned-list');
   const countEl = document.getElementById('pin-count');
