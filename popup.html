@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8" />
+    <link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&display=swap" rel="stylesheet">
     <style>
         body {
             width: 300px;
@@ -279,68 +280,157 @@
         .course-archived-list .course-option {
             padding-left: 22px;
         }
+
+        /* ---- Splash screen ---- */
+        #splash-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 260px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        #splash-screen img {
+            width: 72px;
+            height: 72px;
+            margin-bottom: 14px;
+        }
+
+        #splash-title {
+            font-family: 'Bagel Fat One', 'Comic Sans MS', cursive, sans-serif;
+            font-size: 20px;
+            font-weight: 400;
+            color: #ffffff;
+            letter-spacing: 1px;
+            transform: rotate(-2deg);
+        }
+
+        #splash-tap-hint {
+            font-size: 11px;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        /* ---- Dark mode toggle switch ---- */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #444;
+            border-radius: 22px;
+            transition: background-color 0.2s;
+        }
+
+        .toggle-slider::before {
+            content: "";
+            position: absolute;
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #7F77DD;
+        }
+
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(18px);
+        }
     </style>
 </head>
 <body>
-    <h3>TouchGrass</h3>
-
-
-    <button id="openPlanner" style="background:#28a745;">📅 Open Study Planner</button>
-    <button id="openChecklist" style="background:#e67e22;">Submission Checker</button>
-    <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
-
-    <div id="pinned-section">
-        <div id="pinned-header">Pinned <span id="pin-count"></span>
-        <span>Note: Wait 5 sec to use pin</span>
-        </div>
-        <div id="pinned-list"><div class="empty-state">Loading...</div></div>
+    <div id="splash-screen">
+      <img src="icons/icon48.png" alt="TouchGrass" />
+      <div id="splash-title">TOUCH SOME GRASS 🌱</div>
+      <div id="splash-tap-hint">tap to open</div>
     </div>
 
-    <label>Teacher</label>
-    <select id="teacherFilter">
-        <option value="all">All teachers</option>
-    </select>
+    <div id="main-content" style="display:none;">
+        <h3>TouchGrass</h3>
 
-    <button id="applyFilters">Apply Filter</button>
+        <label style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          🌙 Dark Mode (page)
+          <span class="toggle-switch">
+            <input type="checkbox" id="dark-toggle" />
+            <span class="toggle-slider"></span>
+          </span>
+        </label>
 
-    <div id="debugBox">Loading...</div>
+        <button id="openPlanner" style="background:#28a745;">📅 Open Study Planner</button>
+        <button id="openChecklist" style="background:#e67e22;">Submission Checker</button>
+        <button id="openFiles" style="background:#6f42c1;">Open All Files</button>
 
-    <div id="connectPrompt" style="display:none; background:#3a2a1a; border:1px solid #a76; border-radius:4px; padding:10px; margin-bottom:10px; font-size:12px;">
-        Couldn't connect to Google Classroom automatically.
-        <button id="connectBtn" style="margin-top:8px;">Connect Google Classroom</button>
-    </div>
-
-    <label>Course</label>
-    <div class="course-picker" id="coursePicker">
-        <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Loading courses...</button>
-        <div class="course-picker-panel" id="coursePickerPanel">
-            <div id="activeCourseList"></div>
-            <div class="course-archived-header" id="archivedHeader" style="display:none;">
-                <span class="archived-caret" id="archivedCaret">&gt;</span> Archived Classes
+        <div id="pinned-section">
+            <div id="pinned-header">Pinned <span id="pin-count"></span>
+            <span>Note: Wait 5 sec to use pin</span>
             </div>
-            <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
+            <div id="pinned-list"><div class="empty-state">Loading...</div></div>
         </div>
+
+        <label>Teacher</label>
+        <select id="teacherFilter">
+            <option value="all">All teachers</option>
+        </select>
+
+        <button id="applyFilters">Apply Filter</button>
+
+        <div id="debugBox">Loading...</div>
+
+        <div id="connectPrompt" style="display:none; background:#3a2a1a; border:1px solid #a76; border-radius:4px; padding:10px; margin-bottom:10px; font-size:12px;">
+            Couldn't connect to Google Classroom automatically.
+            <button id="connectBtn" style="margin-top:8px;">Connect Google Classroom</button>
+        </div>
+
+        <label>Course</label>
+        <div class="course-picker" id="coursePicker">
+            <button type="button" class="course-picker-trigger" id="coursePickerTrigger">Loading courses...</button>
+            <div class="course-picker-panel" id="coursePickerPanel">
+                <div id="activeCourseList"></div>
+                <div class="course-archived-header" id="archivedHeader" style="display:none;">
+                    <span class="archived-caret" id="archivedCaret">&gt;</span> Archived Classes
+                </div>
+                <div class="course-archived-list" id="archivedCourseList" style="display:none;"></div>
+            </div>
+        </div>
+        <select id="courseSelect" style="display:none"><option value="">Loading courses...</option></select>
+        <div id="courseSyncStatus" style="font-size: 11px; color: #9cf; word-wrap: break-word; margin-bottom: 8px;"></div>
+
+        <label>Difficulty Estimation</label>
+        <select id="assignmentSelect"><option value="">Select a course first</option></select>
+        <button id="estimateBtn">Estimate Difficulty</button>
+        <div id="difficultyResult" style="font-size: 12px; color: #fc9; word-wrap: break-word;"></div>
+
+        <label>Topic &amp; Concept Breakdown (per question)</label>
+        <button id="analyzeTopicsBtn">Analyze Question-by-Question</button>
+        <button id="useManualTopicsBtn" style="background:#555;">Use My Own Topic List Instead</button>
+        <div id="manualTopicsBox">
+            <label>Enter topics, comma-separated:</label>
+            <input type="text" id="manualTopicsInput" placeholder="e.g. Graphs, Trees, Recursion">
+            <button id="saveManualTopicsBtn">Save Topics &amp; Retry</button>
+        </div>
+        <div id="topicStatus" style="font-size: 12px; color: #fca; word-wrap: break-word;"></div>
+        <div id="topicResult"></div>
     </div>
-    <select id="courseSelect" style="display:none"><option value="">Loading courses...</option></select>
-    <div id="courseSyncStatus" style="font-size: 11px; color: #9cf; word-wrap: break-word; margin-bottom: 8px;"></div>
-
-    <label>Difficulty Estimation</label>
-    <select id="assignmentSelect"><option value="">Select a course first</option></select>
-    <button id="estimateBtn">Estimate Difficulty</button>
-    <div id="difficultyResult" style="font-size: 12px; color: #fc9; word-wrap: break-word;"></div>
-
-    <label>Topic &amp; Concept Breakdown (per question)</label>
-    <button id="analyzeTopicsBtn">Analyze Question-by-Question</button>
-    <button id="useManualTopicsBtn" style="background:#555;">Use My Own Topic List Instead</button>
-    <div id="manualTopicsBox">
-        <label>Enter topics, comma-separated:</label>
-        <input type="text" id="manualTopicsInput" placeholder="e.g. Graphs, Trees, Recursion">
-        <button id="saveManualTopicsBtn">Save Topics &amp; Retry</button>
-    </div>
-    <div id="topicStatus" style="font-size: 12px; color: #fca; word-wrap: break-word;"></div>
-    <div id="topicResult"></div>
-
-    
 
     <script src="popup.js"></script>
 </body>

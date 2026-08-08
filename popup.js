@@ -1,4 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("splash-screen")?.addEventListener("click", () => {
+    document.getElementById("splash-screen").style.display = "none";
+    document.getElementById("main-content").style.display = "block";
+  });
   // Auto-sync trigger: fires every time the popup is opened. Handles
   // authorization (once, automatically, the very first time ever) and
   // re-syncs every course silently after that. If authorization genuinely
