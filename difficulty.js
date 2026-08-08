@@ -9,11 +9,11 @@ const BACKEND_URL = "https://touchgrass-backend.touchgrass.workers.dev";
 
 // ---------- Score -> slang label (edit this list anytime, no AI involved) ----------
 const DIFFICULTY_LABELS = [
-  { max: 2, label: "free real estate 🍰", vibe: "easy" },
-  { max: 4, label: "easy money 💰", vibe: "easy" },
-  { max: 6, label: "mid, we ball 😐", vibe: "medium" },
-  { max: 8, label: "kinda cooked 🔥", vibe: "hard" },
-  { max: 10, label: "absolutely cooked 💀", vibe: "hard" },
+  { max: 2, label: "free real estate ", vibe: "easy" },
+  { max: 4, label: "easy money ", vibe: "easy" },
+  { max: 6, label: "mid, we ball ", vibe: "medium" },
+  { max: 8, label: "kinda cooked ", vibe: "hard" },
+  { max: 10, label: "absolutely cooked ", vibe: "hard" },
 ];
 
 export function difficultyLabelForScore(score) {
